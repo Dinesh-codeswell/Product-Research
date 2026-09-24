@@ -259,11 +259,13 @@ class LiveBrowserAgent:
         action: str,
         items: List[ChannelItem]
     ) -> str:
-        safe_url = html.escape(url or "about:blank")
-        safe_title = html.escape(title or "Syndication Viewport")
-        safe_query = html.escape(query or "")
-        safe_channel = html.escape(channel.upper())
-        safe_action = html.escape(action)
+        import xml.etree.ElementTree as ET
+
+        safe_url = html.escape((url or "about:blank")[:75])
+        safe_title = html.escape((title or "Syndication Viewport")[:70])
+        safe_query = html.escape((query or "")[:60])
+        safe_channel = html.escape((channel or "system").upper()[:20])
+        safe_action = html.escape((action or "INSPECT")[:25])
 
         cards_svg = ""
         y_offset = 200
@@ -275,9 +277,9 @@ class LiveBrowserAgent:
             badge_text = "EXTRACTED &amp; VERIFIED" if is_highlighted else f"SIGNAL #{i+1}"
             badge_color = "#9281f7" if is_highlighted else "#6e727a"
 
-            card_title = html.escape((it.title or it.content[:60]).strip())[:75]
-            card_snippet = html.escape(it.content[:160].replace("\n", " ").strip())
-            card_author = html.escape(it.author or "contributor")
+            card_title = html.escape(((it.title or it.content[:60])).strip()[:70])
+            card_snippet = html.escape(it.content[:140].replace("\n", " ").strip())
+            card_author = html.escape((it.author or "contributor")[:30])
             card_score = it.engagement_score
 
             cards_svg += f"""
@@ -285,7 +287,7 @@ class LiveBrowserAgent:
                 <rect width="1160" height="130" rx="8" fill="{bg_color}" stroke="{border_color}" stroke-width="{border_width}"/>
                 <rect x="20" y="16" width="145" height="22" rx="4" fill="#000000" stroke="{border_color}" stroke-width="1"/>
                 <text x="30" y="31" fill="{badge_color}" font-family="monospace" font-size="10" font-weight="600">{badge_text}</text>
-                <text x="180" y="31" fill="#6e727a" font-family="monospace" font-size="11">@{card_author} &bull; Score: {card_score}</text>
+                <text x="180" y="31" fill="#6e727a" font-family="monospace" font-size="11">@{card_author} &#x2022; Score: {card_score}</text>
                 <text x="20" y="66" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="600">{card_title}</text>
                 <text x="20" y="96" fill="#a1a4a5" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="13">{card_snippet}...</text>
             </g>
@@ -297,7 +299,7 @@ class LiveBrowserAgent:
             <g transform="translate(60, 260)">
                 <rect width="1160" height="220" rx="8" fill="#0e0e11" stroke="#292d30" stroke-width="1"/>
                 <circle cx="580" cy="80" r="24" fill="#18181b" stroke="#9281f7" stroke-width="1"/>
-                <text x="580" y="86" text-anchor="middle" fill="#9281f7" font-family="monospace" font-size="18">&bull;</text>
+                <text x="580" y="86" text-anchor="middle" fill="#9281f7" font-family="monospace" font-size="18">&#x2022;</text>
                 <text x="580" y="130" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="16" font-weight="500">Autonomous Syndication Gateway Connecting...</text>
                 <text x="580" y="160" text-anchor="middle" fill="#6e727a" font-family="monospace" font-size="12">Bypassing login walls and extracting public search signals for "{safe_query}"</text>
             </g>
@@ -320,11 +322,11 @@ class LiveBrowserAgent:
 
   <rect x="85" y="12" width="230" height="32" rx="6" fill="#141418" stroke="#292d30" stroke-width="1"/>
   <circle cx="102" cy="28" r="3" fill="#9281f7"/>
-  <text x="115" y="32" fill="#ffffff" font-family="monospace" font-size="11" font-weight="500">{safe_channel} &bull; Syndication</text>
+  <text x="115" y="32" fill="#ffffff" font-family="monospace" font-size="11" font-weight="500">{safe_channel} &#x2022; Syndication</text>
 
   <rect x="330" y="12" width="620" height="32" rx="6" fill="#000000" stroke="#292d30" stroke-width="1"/>
   <circle cx="348" cy="28" r="3.5" fill="#3ad389"/>
-  <text x="362" y="32" fill="#a1a4a5" font-family="monospace" font-size="11">{safe_url[:75]}</text>
+  <text x="362" y="32" fill="#a1a4a5" font-family="monospace" font-size="11">{safe_url}</text>
 
   <rect x="965" y="12" width="255" height="32" rx="6" fill="#000000" stroke="#9281f7" stroke-width="1"/>
   <circle cx="982" cy="28" r="3.5" fill="#9281f7"/>
@@ -340,13 +342,25 @@ class LiveBrowserAgent:
   </g>
 
   <text x="60" y="165" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="20" font-weight="600">{safe_title}</text>
-  <text x="60" y="185" fill="#6e727a" font-family="monospace" font-size="11">Target: {safe_url[:80]} &bull; Anti-Detection Active</text>
+  <text x="60" y="185" fill="#6e727a" font-family="monospace" font-size="11">Target: {safe_url} &#x2022; Anti-Detection Active</text>
 
   {cards_svg}
 
   <rect x="0" y="760" width="1280" height="40" fill="#09090b" stroke="#292d30" stroke-width="1"/>
-  <text x="60" y="784" fill="#6e727a" font-family="monospace" font-size="11">1280x800 Chromium Engine &bull; Zero-Auth Privacy Syndication &bull; Status: LIVE</text>
-  <text x="1100" y="784" fill="#3ad389" font-family="monospace" font-size="11">&bull; ACTIVE AGENT</text>
+  <text x="60" y="784" fill="#6e727a" font-family="monospace" font-size="11">1280x800 Chromium Engine &#x2022; Zero-Auth Privacy Syndication &#x2022; Status: LIVE</text>
+  <text x="1100" y="784" fill="#3ad389" font-family="monospace" font-size="11">&#x2022; ACTIVE AGENT</text>
+</svg>"""
+
+        try:
+            ET.fromstring(svg)
+        except Exception as e:
+            logger.error(f"SVG validation error: {e}. Falling back to clean minimal SVG.")
+            svg = f"""<svg width="1280" height="800" viewBox="0 0 1280 800" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="800" fill="#0a0a0c"/>
+  <rect x="0" y="0" width="1280" height="56" fill="#09090b" stroke="#292d30" stroke-width="1"/>
+  <text x="60" y="34" fill="#9281f7" font-family="monospace" font-size="14" font-weight="bold">PULSERADAR LIVE VIEWPORT: {safe_channel}</text>
+  <text x="60" y="120" fill="#ffffff" font-family="sans-serif" font-size="18">{safe_title}</text>
+  <text x="60" y="150" fill="#a1a4a5" font-family="monospace" font-size="12">Inspecting un-gatekept discussions ({len(items)} signals persisted)</text>
 </svg>"""
 
         b64_data = base64.b64encode(svg.encode("utf-8")).decode("utf-8")

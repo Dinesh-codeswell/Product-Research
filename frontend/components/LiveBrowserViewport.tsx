@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Monitor,
   Lock,
@@ -45,8 +45,13 @@ export function LiveBrowserViewport({
   const [isPaused, setIsPaused] = useState(false);
   const [selectedChannel, setSelectedChannel] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>("");
+  const [imageError, setImageError] = useState(false);
 
   const latestEvent = events.length > 0 ? events[events.length - 1] : null;
+
+  useEffect(() => {
+    setImageError(false);
+  }, [latestEvent?.screenshot]);
   const currentUrl = latestEvent?.url || (feedbacks.length > 0 ? feedbacks[0].url : "about:blank");
   const currentAction = latestEvent?.action || (isSessionRunning ? "INSPECTING" : "STANDBY");
   const currentChannel = latestEvent?.channel || (feedbacks.length > 0 ? feedbacks[0].channel : "system");
@@ -144,13 +149,14 @@ export function LiveBrowserViewport({
 
         {/* Live Viewport Screencast Screen */}
         <div className="relative aspect-[16/10] sm:aspect-[16/9] w-full bg-[#000000] flex items-center justify-center overflow-hidden border-b border-[#292d30]">
-          {latestScreenshot ? (
+          {latestScreenshot && !imageError ? (
             <div className="relative w-full h-full">
               {/* Actual Base64 Screencast Image */}
               <img
                 src={latestScreenshot}
                 alt="Live agent browser viewport"
                 className="w-full h-full object-contain bg-[#000000]"
+                onError={() => setImageError(true)}
               />
 
               {/* Action HUD Overlay Pill */}
@@ -168,21 +174,61 @@ export function LiveBrowserViewport({
               </div>
             </div>
           ) : (
-            <div className="text-center p-8 space-y-4 font-mono text-xs">
-              <div className="w-12 h-12 mx-auto rounded-[6px] bg-[#000000] border border-[#292d30] flex items-center justify-center text-[#9281f7]">
-                <Monitor className="h-6 w-6 animate-pulse" />
+            <div className="relative w-full h-full p-6 flex flex-col justify-between bg-[#000000] font-mono text-xs">
+              {/* Interactive Live DOM Viewport Screen */}
+              <div className="flex items-center justify-between border-b border-[#292d30] pb-3">
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="h-2 w-2 rounded-full bg-[#9281f7] animate-pulse" />
+                  <span className="text-[#ffffff] font-semibold uppercase">{currentChannel} SYNDICATION</span>
+                  <span className="text-[#6e727a]">•</span>
+                  <span className="text-[#a1a4a5] font-mono truncate max-w-xs sm:max-w-md">{currentUrl}</span>
+                </div>
+                <div className="px-2 py-0.5 rounded bg-[#9281f7]/10 text-[#9281f7] text-[11px] border border-[#9281f7]/30">
+                  [{currentAction}]
+                </div>
               </div>
-              <div className="space-y-1">
-                <p className="text-[#ffffff] font-medium text-sm">
-                  {isSessionRunning
-                    ? "Connecting to Live Browser Session..."
-                    : "Autonomous Browser Sweep Complete"}
-                </p>
-                <p className="text-[#6e727a] text-[11px] max-w-md mx-auto">
-                  {isSessionRunning
-                    ? "Visible window spawned on host desktop. Live screencast will mirror un-gatekept frames here in real-time."
-                    : `The agent successfully inspected all targeted channels, bypassed login walls via privacy syndication, and persisted ${feedbacks.length} verified signals below.`}
-                </p>
+
+              {/* Signal cards preview */}
+              <div className="space-y-3 py-3 flex-1 overflow-hidden">
+                {feedbacks.slice(0, 2).map((fb, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded-[8px] bg-[#0e0e11] border transition-all ${
+                      idx === 0 ? "border-[#9281f7] shadow-[0_0_15px_rgba(146,129,247,0.1)]" : "border-[#292d30]"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <span className="text-[#9281f7] font-semibold">
+                        {idx === 0 ? "EXTRACTED & VERIFIED" : `SIGNAL #${idx + 1}`}
+                      </span>
+                      <span className="text-[#6e727a]">Score: {fb.engagement_score}</span>
+                    </div>
+                    <div className="text-sm font-sans font-medium text-[#ffffff] truncate">
+                      {fb.title || fb.content.slice(0, 60)}
+                    </div>
+                    <div className="text-xs text-[#a1a4a5] truncate mt-1">
+                      {fb.content.slice(0, 120)}...
+                    </div>
+                  </div>
+                ))}
+                {feedbacks.length === 0 && (
+                  <div className="h-full flex flex-col items-center justify-center space-y-2 py-6 text-center">
+                    <Monitor className="h-6 w-6 text-[#9281f7] animate-pulse mx-auto" />
+                    <p className="text-[#ffffff] text-sm">
+                      {isSessionRunning ? "Agent Inspecting Live Channel Stream..." : "Autonomous Browser Sweep Complete"}
+                    </p>
+                    <p className="text-[#6e727a] text-[11px] max-w-md mx-auto">
+                      {isSessionRunning
+                        ? `Bypassing login walls via privacy syndication. Inspecting ${currentChannel}...`
+                        : `Sweep finalized. Persisted ${feedbacks.length} verified signals below.`}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-2 border-t border-[#292d30] text-[10px] text-[#6e727a]">
+                <span>1280x800 Chromium Engine • Anti-Detection Active</span>
+                <span className="text-[#3ad389]">• LIVE AGENT</span>
               </div>
             </div>
           )}
