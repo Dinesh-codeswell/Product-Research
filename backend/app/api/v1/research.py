@@ -34,14 +34,24 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/research", tags=["Research"])
 settings_router = APIRouter(prefix="/settings", tags=["Settings"])
 
-# In-memory SSE queues per session
+# In-memory SSE queues and event history buffer per session
 session_event_queues: Dict[str, List[asyncio.Queue]] = {}
+session_event_history: Dict[str, List[str]] = {}
 
 def publish_event(session_id: str, stage: str, percent: int, message: str, data: dict = None):
-    queues = session_event_queues.get(session_id, [])
     payload = json.dumps({"stage": stage, "percent": percent, "message": message, "data": data or {}})
+    if session_id not in session_event_history:
+        session_event_history[session_id] = []
+    session_event_history[session_id].append(payload)
+    if len(session_event_history[session_id]) > 250:
+        session_event_history[session_id].pop(0)
+
+    queues = session_event_queues.get(session_id, [])
     for q in queues:
-        q.put_nowait(payload)
+        try:
+            q.put_nowait(payload)
+        except Exception:
+            pass
 
 async def scrape_channel(channel_name: str, query: str, limit: int, subreddits: List[str] = None):
     try:
@@ -102,7 +112,10 @@ async def run_research_pipeline(
             if execution_mode == "browser" and browser_approved:
                 publish_event(session_id, "browser_agent_start", 10, f"Spawning Live Browser Agent across {len(channels)} channels...", {
                     "mode": "browser",
-                    "channels": channels
+                    "channels": channels,
+                    "action": "SPAWN_AGENT",
+                    "channel": "system",
+                    "title": "Autonomous Browser Agent Starting"
                 })
                 from app.browser_agent.agent import LiveBrowserAgent
                 browser_agent = LiveBrowserAgent()
@@ -113,6 +126,21 @@ async def run_research_pipeline(
                     max_items=max_items,
                     event_publisher=publish_event
                 )
+
+                # Resilient Fallback: If browser engine yielded 0 items, run parallel multi-channel scrapers
+                if not all_raw_items:
+                    logger.warning(f"Browser agent yielded 0 items. Triggering resilient multi-channel scraper fallback for session {session_id}.")
+                    publish_event(session_id, "browser_fallback", 25, f"Engaging parallel multi-channel direct syndication across {len(channels)} channels...", {
+                        "action": "FALLBACK_SCRAPE",
+                        "channel": "system",
+                        "title": "Parallel Resilient Ingestion",
+                        "description": "Engaging direct syndication scrapers across all channels"
+                    })
+                    per_channel_limit = max(15, max_items // max(1, len(channels)))
+                    tasks = [scrape_channel(ch, query, per_channel_limit, subreddits) for ch in channels]
+                    results = await asyncio.gather(*tasks)
+                    for ch_items in results:
+                        all_raw_items.extend(ch_items)
             else:
                 publish_event(session_id, "start", 10, f"Dispatching parallel workers across {len(channels)} channels...")
 
@@ -252,21 +280,39 @@ async def stream_events(session_id: str):
         session_event_queues[session_id] = []
 
     queue = asyncio.Queue()
+
+    # Replay past events first so late-connecting clients receive full history
+    past_events = session_event_history.get(session_id, [])
+    for past_msg in past_events:
+        queue.put_nowait(past_msg)
+
     session_event_queues[session_id].append(queue)
 
     async def event_generator():
         try:
             while True:
-                msg = await queue.get()
-                yield f"data: {msg}\n\n"
-                data = json.loads(msg)
-                if data.get("stage") in ["completed", "failed"]:
-                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"data: {msg}\n\n"
+                    data = json.loads(msg)
+                    if data.get("stage") in ["completed", "failed"]:
+                        break
+                except asyncio.TimeoutError:
+                    # Keep-alive heartbeat ping prevents proxy timeout
+                    yield ": ping\n\n"
         finally:
             if session_id in session_event_queues and queue in session_event_queues[session_id]:
                 session_event_queues[session_id].remove(queue)
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 @router.post("/{session_id}/generate-prd", response_model=GeneratedSpecResponse)
 async def generate_prd_endpoint(session_id: str, payload: GenerateSpecRequest, db: AsyncSession = Depends(get_db)):

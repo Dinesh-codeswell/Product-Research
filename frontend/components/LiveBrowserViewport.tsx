@@ -50,7 +50,12 @@ export function LiveBrowserViewport({
   const currentUrl = latestEvent?.url || (feedbacks.length > 0 ? feedbacks[0].url : "about:blank");
   const currentAction = latestEvent?.action || (isSessionRunning ? "INSPECTING" : "STANDBY");
   const currentChannel = latestEvent?.channel || (feedbacks.length > 0 ? feedbacks[0].channel : "system");
-  const latestScreenshot = latestEvent?.screenshot;
+  const latestScreenshot =
+    latestEvent?.screenshot ||
+    events
+      .slice()
+      .reverse()
+      .find((e) => Boolean(e.screenshot))?.screenshot;
 
   // Filter signals
   const filteredFeedbacks = useMemo(() => {

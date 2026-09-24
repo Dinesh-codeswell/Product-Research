@@ -40,7 +40,7 @@ export default function ResearchSessionPage() {
     try {
       const data = await getResearchSession(sessionId);
       setSession(data);
-      if (data.execution_mode === "browser" && data.status === "RUNNING") {
+      if (data.execution_mode === "browser") {
         setActiveTab("viewport");
       }
     } catch (e) {
@@ -60,19 +60,36 @@ export default function ResearchSessionPage() {
         setProgress(payload);
 
         // Capture live browser agent screencast and action events
-        if (payload.stage === "browser_action" && payload.data) {
+        const isBrowserEvent =
+          payload.stage === "browser_action" ||
+          payload.stage === "browser_agent" ||
+          payload.stage === "browser_agent_start" ||
+          payload.stage === "browser_fallback";
+
+        if (isBrowserEvent && payload.data) {
           const actionEvt: BrowserActionEvent = {
-            action: payload.data.action || "NAVIGATE",
+            action: payload.data.action || "INSPECT",
             url: payload.data.url || "",
-            title: payload.data.title,
+            title: payload.data.title || "Live Agent Inspection",
             description: payload.data.description || payload.message,
             screenshot: payload.data.screenshot,
-            channel: payload.data.channel,
+            channel: payload.data.channel || "system",
             timestamp: payload.data.timestamp || new Date().toLocaleTimeString(),
             items_count: payload.data.items_count,
           };
-          setBrowserEvents((prev) => [...prev, actionEvt]);
-          setActiveTab((cur) => (cur === "clusters" ? "viewport" : cur));
+          setBrowserEvents((prev) => {
+            const last = prev[prev.length - 1];
+            if (
+              last &&
+              last.action === actionEvt.action &&
+              last.url === actionEvt.url &&
+              last.description === actionEvt.description
+            ) {
+              return prev;
+            }
+            return [...prev, actionEvt];
+          });
+          setActiveTab("viewport");
         }
 
         if (payload.stage === "scraped") {
