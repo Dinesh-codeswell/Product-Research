@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     MAX_ITEMS_PER_CHANNEL: int = 100
     REQUEST_TIMEOUT_SECONDS: int = 30
     REDDIT_USER_AGENT: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) PulseRadar/1.0"
+    
+    # Laya System 1 Decision Engine Settings
+    LAYA_ENABLED: bool = True
+    LAYA_SERVICE_URL: str = "http://127.0.0.1:8080"
+    LAYA_USE_LOCAL: bool = True
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

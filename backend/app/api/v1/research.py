@@ -155,9 +155,9 @@ async def run_research_pipeline(
 
             publish_event(session_id, "scraped", 55, f"Harvested {len(all_raw_items)} signals across {len(channels)} channels.")
 
-            # 2. Cleaning & Deduplication
-            publish_event(session_id, "cleaning", 70, f"Deduplicating and stripping noise across {len(all_raw_items)} items...")
-            cleaned_items = cleaner.deduplicate_and_clean(all_raw_items)
+            # 2. Cleaning & Laya System 1 Triage
+            publish_event(session_id, "cleaning", 68, f"Executing Laya System 1 semantic triage & noise reduction across {len(all_raw_items)} signals...")
+            cleaned_items = cleaner.deduplicate_and_clean(all_raw_items, query=query)
 
             # Persist raw feedbacks
             for it in cleaned_items:
@@ -170,6 +170,7 @@ async def run_research_pipeline(
                     content=it.content,
                     author=it.author,
                     engagement_score=it.engagement_score,
+                    sentiment_score=getattr(it, "sentiment_score", 0.0),
                     raw_metadata=it.raw_metadata
                 )
                 db.add(fb)

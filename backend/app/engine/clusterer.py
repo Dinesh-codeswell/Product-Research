@@ -48,21 +48,32 @@ class SemanticClusterer:
             cluster_indices = [i for i, l in enumerate(labels) if l == label]
             cluster_items = [items[i] for i in cluster_indices]
             
-            # Combine text to analyze category & theme
-            combined_text = " ".join([it.content.lower() for it in cluster_items])
-            
-            # Score categories
-            cat_scores = {
-                "PAIN_POINT": sum(combined_text.count(k) for k in PAIN_KEYWORDS),
-                "WORKAROUND": sum(combined_text.count(k) for k in WORKAROUND_KEYWORDS),
-                "DESIRE": sum(combined_text.count(k) for k in DESIRE_KEYWORDS),
-                "CHURN_TRIGGER": sum(combined_text.count(k) for k in CHURN_KEYWORDS)
-            }
-            
-            best_cat = max(cat_scores, key=cat_scores.get)
-            if cat_scores[best_cat] == 0:
-                categories = ["PAIN_POINT", "DESIRE", "WORKAROUND", "CHURN_TRIGGER"]
-                best_cat = categories[label % len(categories)]
+            # 1. Aggregate Laya System 1 category votes & calibrated severities
+            category_counts = {}
+            severity_vals = []
+            for it in cluster_items:
+                meta = it.raw_metadata or {}
+                if "laya_category" in meta:
+                    cat = meta["laya_category"]
+                    category_counts[cat] = category_counts.get(cat, 0) + 1
+                if "laya_severity" in meta:
+                    severity_vals.append(float(meta["laya_severity"]))
+
+            if category_counts:
+                best_cat = max(category_counts, key=category_counts.get)
+            else:
+                # Heuristic keyword fallback
+                combined_text = " ".join([it.content.lower() for it in cluster_items])
+                cat_scores = {
+                    "PAIN_POINT": sum(combined_text.count(k) for k in PAIN_KEYWORDS),
+                    "WORKAROUND": sum(combined_text.count(k) for k in WORKAROUND_KEYWORDS),
+                    "DESIRE": sum(combined_text.count(k) for k in DESIRE_KEYWORDS),
+                    "CHURN_TRIGGER": sum(combined_text.count(k) for k in CHURN_KEYWORDS)
+                }
+                best_cat = max(cat_scores, key=cat_scores.get)
+                if cat_scores[best_cat] == 0:
+                    categories = ["PAIN_POINT", "DESIRE", "WORKAROUND", "CHURN_TRIGGER"]
+                    best_cat = categories[label % len(categories)]
 
             # Derive title from most engaged item or top words
             top_item = max(cluster_items, key=lambda x: x.engagement_score)
@@ -70,9 +81,13 @@ class SemanticClusterer:
             if len(title) > 95:
                 title = title[:92] + "..."
 
-            # Calculate severity score (0.4 to 0.98 based on volume and category)
-            base_severity = 0.75 if best_cat in ["PAIN_POINT", "CHURN_TRIGGER"] else 0.55
-            severity = min(0.98, base_severity + (len(cluster_items) / (n_items + 1)) * 0.35)
+            # Real calibrated severity calculation
+            if severity_vals:
+                base_sev = float(np.mean(severity_vals))
+                severity = round(min(0.98, max(0.40, base_sev + (len(cluster_items) / (n_items + 1)) * 0.15)), 2)
+            else:
+                base_severity = 0.75 if best_cat in ["PAIN_POINT", "CHURN_TRIGGER"] else 0.55
+                severity = round(min(0.98, base_severity + (len(cluster_items) / (n_items + 1)) * 0.35), 2)
 
             # Sourced platforms
             platforms_present = sorted(list(set(it.channel for it in cluster_items)))

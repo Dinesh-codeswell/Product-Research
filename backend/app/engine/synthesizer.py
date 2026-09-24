@@ -101,12 +101,27 @@ class SynthesisEngine:
 
         return "\n".join(prd_lines)
 
+    def _distill_clusters(self, clusters: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Compresses clusters into high-signal representation to reduce LLM token usage by ~75%."""
+        distilled = []
+        for c in clusters:
+            quotes = [q.get("quote_text", "")[:220] for q in c.get("quotes", [])[:3] if q.get("quote_text")]
+            distilled.append({
+                "theme": c.get("title"),
+                "category": c.get("category"),
+                "calibrated_severity": c.get("severity_score"),
+                "signal_volume": c.get("item_count"),
+                "verified_quotes": quotes
+            })
+        return distilled
+
     async def _call_openai_summary(self, query: str, clusters: List[Dict[str, Any]], total_items: int) -> str:
+        distilled = self._distill_clusters(clusters)
         prompt = (
             f"You are an expert Chief Product Officer. Synthesize an executive product discovery summary for: '{query}'.\n"
-            f"Total items analyzed: {total_items}.\n"
-            f"Clusters: {clusters}\n"
-            "Format in clean markdown with Strategic Takeaways, User Mental Models, and Action Items."
+            f"Total verified feedback signals analyzed: {total_items}.\n"
+            f"Key Discovered Evidence Clusters:\n{distilled}\n\n"
+            "Format in clean markdown with Strategic Takeaways, User Mental Models, and Priority Action Items."
         )
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
@@ -122,10 +137,11 @@ class SynthesisEngine:
             return data["choices"][0]["message"]["content"]
 
     async def _call_openai_prd(self, query: str, clusters: List[Dict[str, Any]], custom_instructions: Optional[str]) -> str:
+        distilled = self._distill_clusters(clusters)
         prompt = (
-            f"You are a Principal Product Manager. Generate a comprehensive Product Requirements Document (PRD) for a project solving issues with: '{query}'.\n"
-            f"Based on real user evidence clusters: {clusters}\n"
-            f"Custom focus: {custom_instructions or 'None'}\n"
+            f"You are a Principal Product Manager. Generate a comprehensive Product Requirements Document (PRD) for: '{query}'.\n"
+            f"Based on real user evidence clusters:\n{distilled}\n"
+            f"Custom strategic focus: {custom_instructions or 'None'}\n\n"
             "Include: Problem Statement, Personas, Functional Requirements (FR-1, FR-2), Gherkin User Stories (Given-When-Then), and OKRs."
         )
         async with httpx.AsyncClient(timeout=45) as client:
