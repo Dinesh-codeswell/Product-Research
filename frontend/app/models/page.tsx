@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Cpu,
   Search,
@@ -48,7 +49,10 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
-  PanelRightOpen
+  PanelRightOpen,
+  ArrowLeft,
+  Settings,
+  ChevronsUpDown
 } from "lucide-react";
 
 interface ModelEndpoint {
@@ -181,8 +185,16 @@ const CAPABILITY_FILTERS = [
   { id: "massive_context", label: "🌊 1M+ Context", icon: Compass },
 ];
 
-export default function AIModelsPage() {
-  const [activeTab, setActiveTab] = useState<string>("chat");
+function ModelsContent() {
+  const searchParams = useSearchParams();
+  const tabParam = searchParams?.get("tab");
+  const [activeTab, setActiveTab] = useState<string>(tabParam || "chat");
+
+  useEffect(() => {
+    if (tabParam && tabParam !== activeTab) {
+      setActiveTab(tabParam);
+    }
+  }, [tabParam]);
   
   // Catalog State
   const [models, setModels] = useState<ModelEndpoint[]>([]);
@@ -648,451 +660,423 @@ export default function AIModelsPage() {
   // DEDICATED FULL-SCREEN PLAYGROUND STUDIO (Matching Screenshot 2026-09-26 230854 & 230901)
   if (activeTab === "playground") {
     return (
-      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#07080c] text-slate-100 select-none">
-        {/* Sleek Top Navigation Bar (Only ~44px height, leaves 93%+ vertical space to the playground) */}
-        <header className="h-11 border-b border-slate-800/80 bg-slate-950/95 px-3 flex items-center justify-between shrink-0 z-30">
-          <div className="flex items-center space-x-3 overflow-x-auto no-scrollbar">
-            <Link href="/" className="flex items-center space-x-1.5 text-slate-400 hover:text-white transition shrink-0">
-              <Cpu className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs font-bold text-white tracking-tight">PulseRadar</span>
-            </Link>
-            <span className="text-slate-800">|</span>
-            <nav className="flex items-center space-x-1 shrink-0">
-              {MODALITY_TABS.map(tab => {
-                const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`flex items-center space-x-1 px-2.5 py-1 text-xs rounded-md transition ${
-                      isActive
-                        ? "bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/30"
-                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
-                    }`}
-                  >
-                    <Icon className="w-3 h-3" />
-                    <span>{tab.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          <div className="flex items-center space-x-2 shrink-0">
-            {config && (
-              <div className="hidden lg:flex items-center space-x-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px]">
-                <span className="text-slate-500">Pipeline Engine:</span>
-                <span className="font-semibold text-cyan-400">{config.active_model_name}</span>
-                <span className="text-slate-600">({config.active_provider})</span>
-              </div>
-            )}
-            <Link
-              href="/"
-              className="px-2.5 py-1 text-xs rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition flex items-center space-x-1"
-            >
-              <span>Product Research</span>
-              <ArrowRight className="w-3 h-3" />
-            </Link>
-            <Link
-              href="/seo"
-              className="px-2.5 py-1 text-xs rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition"
-            >
-              SEO Studio
-            </Link>
-          </div>
-        </header>
-
-        {/* 3-Column Edge-to-Edge Playground Layout (Matching Screenshot 2026-09-26 230854 & 230901) */}
-        <div className="flex-1 min-h-0 w-full flex overflow-hidden relative">
-          {/* Column 1: Conversations Sidebar (Collapsible) */}
-          {isLeftSidebarOpen ? (
-            <aside className="w-64 border-r border-slate-800/80 bg-slate-950/70 flex flex-col shrink-0 select-none">
-              <div className="h-10 px-3 border-b border-slate-800/60 flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-300 tracking-wide">Conversations</span>
-                <div className="flex items-center space-x-1">
-                  <button
-                    onClick={createNewConversation}
-                    className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
-                    title="New Conversation"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() => setIsLeftSidebarOpen(false)}
-                    className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
-                    title="Collapse sidebar"
-                  >
-                    <PanelLeftClose className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {conversations.map(c => {
-                  const isCur = c.id === activeConversation?.id;
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => setActiveConversationId(c.id)}
-                      className={`p-2.5 rounded-xl cursor-pointer transition text-xs flex items-center justify-between group ${
-                        isCur
-                          ? "bg-slate-800/90 text-white font-medium border border-slate-700/80 shadow-sm"
-                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
-                      }`}
-                    >
-                      <div className="flex flex-col truncate pr-2">
-                        <span className="truncate font-medium">{c.title || "New Chat"}</span>
-                        <span className="text-[10px] text-slate-500 font-mono mt-0.5">
-                          {c.createdAt || "just now"} · {c.messages?.length || 0} messages
-                        </span>
-                      </div>
-                      <button
-                        onClick={e => deleteConversation(c.id, e)}
-                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1 transition"
-                        title="Delete conversation"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </aside>
-          ) : (
-            <button
-              onClick={() => setIsLeftSidebarOpen(true)}
-              className="absolute left-2.5 top-2.5 z-20 p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white shadow-xl transition"
-              title="Expand Conversations"
-            >
-              <PanelLeftOpen className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Column 2: Center Chat Testing Viewport */}
-          <main className="flex-1 min-h-0 flex flex-col bg-[#050608] relative">
-            {/* Top Subheader: "Playground · <Model Name>" */}
-            <div className="h-10 px-4 border-b border-slate-800/60 bg-slate-950/40 flex items-center justify-between shrink-0">
-              <div className="flex items-center space-x-2 text-xs">
-                <span className="font-bold text-white tracking-tight">Playground</span>
-                <span className="text-slate-600">·</span>
-                <span className="text-cyan-400 font-semibold truncate max-w-xs md:max-w-md">
-                  {selectedModel?.display_name || playgroundModelId.split("/").pop()}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800">
-                  {selectedModel?.provider_name || playgroundModelId.split("/")[0]}
-                </span>
-              </div>
-
-              <div className="flex items-center space-x-2">
+      <div className="fixed inset-0 z-[99999] w-screen h-screen overflow-hidden flex bg-[#0c0d12] text-slate-100 select-none">
+        {/* Column 1: Conversations Sidebar (Collapsible, w-60) */}
+        {isLeftSidebarOpen ? (
+          <aside className="w-60 border-r border-[#1f2026] bg-[#0c0d12] flex flex-col shrink-0 select-none">
+            <div className="h-12 px-3.5 border-b border-[#1f2026] flex items-center justify-between text-xs shrink-0">
+              <span className="font-semibold text-zinc-200">Conversations</span>
+              <div className="flex items-center space-x-1">
                 <button
-                  onClick={() => {
-                    const finalConvs = conversations.map(c => {
-                      if (c.id === activeConversation?.id) {
-                        return { ...c, messages: [] };
-                      }
-                      return c;
-                    });
-                    saveConversations(finalConvs);
-                  }}
-                  className="text-xs text-slate-400 hover:text-slate-200 px-2.5 py-1 rounded hover:bg-slate-800/60 transition"
+                  type="button"
+                  onClick={createNewConversation}
+                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800/60 rounded-md transition"
+                  title="New Conversation"
                 >
-                  Clear Chat
+                  <Plus className="w-4 h-4" />
                 </button>
-                {!isRightSidebarOpen && (
-                  <button
-                    onClick={() => setIsRightSidebarOpen(true)}
-                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
-                    title="Open Settings"
-                  >
-                    <PanelRightOpen className="w-4 h-4" />
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setIsLeftSidebarOpen(false)}
+                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800/60 rounded-md transition"
+                  title="Collapse sidebar"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            {/* Chat Message Stream (Independent scrolling, NO parent page scroll!) */}
-            <div className="flex-1 overflow-y-auto px-4 md:px-12 py-6 space-y-4">
-              {(!activeConversation?.messages || activeConversation.messages.length === 0) ? (
-                <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-2 select-none py-28">
-                  <h3 className="text-lg font-bold text-white">Send a message to get started.</h3>
-                  <p className="text-xs text-slate-400 leading-relaxed">
-                    Using {selectedModel?.display_name || playgroundModelId}. Switch models in the selector on the right panel.
-                  </p>
-                </div>
-              ) : (
-                activeConversation.messages.map(msg => (
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {conversations.map(c => {
+                const isCur = c.id === activeConversation?.id;
+                return (
+                  <div
+                    key={c.id}
+                    onClick={() => setActiveConversationId(c.id)}
+                    className={`p-2.5 rounded-lg cursor-pointer transition text-xs flex items-center justify-between group ${
+                      isCur
+                        ? "bg-[#181922] text-white font-medium border border-[#2d2e38] shadow-sm"
+                        : "text-zinc-400 hover:text-zinc-200 hover:bg-[#14151c]"
+                    }`}
+                  >
+                    <div className="flex flex-col truncate pr-2">
+                      <span className="truncate font-medium">{c.title || "New Chat"}</span>
+                      <span className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                        {c.createdAt || "just now"} · {c.messages?.length || 0} messages
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={e => deleteConversation(c.id, e)}
+                      className="opacity-0 group-hover:opacity-100 text-zinc-500 hover:text-rose-400 p-1 transition"
+                      title="Delete conversation"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        ) : null}
+
+        {/* Column 2: Center Testing Canvas */}
+        <main className="flex-1 min-w-0 flex flex-col bg-[#08090c] relative">
+          {/* Top Bar across center column */}
+          <div className="h-12 px-4 border-b border-[#1f2026] bg-[#0c0d12] flex items-center justify-between shrink-0">
+            <div className="flex items-center space-x-2 text-xs">
+              {!isLeftSidebarOpen && (
+                <button
+                  type="button"
+                  onClick={() => setIsLeftSidebarOpen(true)}
+                  className="p-1.5 mr-1 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition"
+                  title="Show Conversations"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+              )}
+              <span className="font-bold text-white text-sm tracking-tight">Playground</span>
+              <span className="text-zinc-600 font-bold">·</span>
+              <span className="text-zinc-400 font-normal truncate max-w-xs md:max-w-md">
+                {selectedModel?.display_name || playgroundModelId}
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={() => setActiveTab("chat")}
+                className="text-xs text-zinc-400 hover:text-white px-2.5 py-1 rounded-md hover:bg-zinc-800/60 border border-zinc-800 transition flex items-center gap-1.5"
+                title="Exit Playground and return to Model Hub"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Model Hub</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const finalConvs = conversations.map(c => {
+                    if (c.id === activeConversation?.id) {
+                      return { ...c, messages: [] };
+                    }
+                    return c;
+                  });
+                  saveConversations(finalConvs);
+                }}
+                className="text-xs text-zinc-400 hover:text-zinc-200 px-2.5 py-1 rounded-md hover:bg-zinc-800/60 border border-zinc-800/80 transition"
+              >
+                Clear Chat
+              </button>
+
+              {!isRightSidebarOpen && (
+                <button
+                  type="button"
+                  onClick={() => setIsRightSidebarOpen(true)}
+                  className="p-1.5 text-zinc-400 hover:text-white hover:bg-zinc-800/60 rounded-md border border-zinc-800/80 transition flex items-center gap-1 text-xs"
+                  title="Open Settings"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Settings</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Chat Message Stream */}
+          <div className="flex-1 min-h-0 overflow-y-auto px-4 md:px-12 py-6 space-y-4">
+            {(!activeConversation?.messages || activeConversation.messages.length === 0) ? (
+              <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-2 select-none py-28">
+                <h3 className="text-base font-semibold text-white">Send a message to get started.</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Using {selectedModel?.display_name || playgroundModelId}. Switch models in the selector on the right panel.
+                </p>
+              </div>
+            ) : (
+              <div className="max-w-3xl mx-auto space-y-4">
+                {activeConversation.messages.map(msg => (
                   <div
                     key={msg.id}
                     className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed ${
+                      className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs leading-relaxed ${
                         msg.role === "user"
-                          ? "bg-cyan-600 text-white shadow-md shadow-cyan-950/20 rounded-br-sm"
-                          : "bg-slate-900/95 text-slate-200 border border-slate-800 shadow-md rounded-bl-sm whitespace-pre-wrap font-sans"
+                          ? "bg-[#9281f7] text-white shadow-md rounded-br-sm"
+                          : "w-full text-zinc-200 bg-[#12131a] border border-[#232532] shadow-sm rounded-bl-sm whitespace-pre-wrap font-sans"
                       }`}
                     >
                       {msg.content}
                     </div>
 
-                    <div className="flex items-center space-x-2 mt-1 text-[10px] text-slate-500 px-1 font-mono">
+                    <div className="flex items-center space-x-2 mt-1 text-[10px] text-zinc-500 px-1 font-mono">
                       <span>{msg.timestamp}</span>
                       {msg.latency_ms && <span>· {msg.latency_ms} ms</span>}
                       {msg.model_used && <span>· {msg.model_used.split("/").pop()}</span>}
                       <button
+                        type="button"
                         onClick={() => copyToClipboard(msg.content, msg.id)}
-                        className="hover:text-slate-300 transition ml-1"
+                        className="hover:text-zinc-300 transition ml-1"
                         title="Copy text"
                       >
                         {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400 inline" /> : <Copy className="w-3 h-3 inline" />}
                       </button>
                     </div>
                   </div>
-                ))
-              )}
+                ))}
 
-              {isSendingMessage && (
-                <div className="flex items-center space-x-2 text-xs text-slate-400 bg-slate-900/80 p-3 rounded-xl border border-slate-800/80 w-max shadow">
-                  <RotateCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
-                  <span>Inference running on {selectedModel?.display_name || playgroundModelId}...</span>
-                </div>
-              )}
-              <div ref={chatBottomRef} />
-            </div>
-
-            {/* Bottom Input Box matching Screenshot 2026-09-26 230854 */}
-            <div className="p-4 border-t border-slate-800/60 bg-[#050608] shrink-0">
-              <form
-                onSubmit={e => {
-                  e.preventDefault();
-                  handleSendMessage();
-                }}
-                className="max-w-4xl mx-auto flex items-center bg-[#0d0f15] border border-slate-800 hover:border-slate-700 focus-within:border-cyan-500/80 rounded-2xl px-3.5 py-2 shadow-2xl transition gap-2"
-              >
-                <button
-                  type="button"
-                  className="p-1 text-slate-500 hover:text-slate-300 transition"
-                  title="Insert Product Research prompt"
-                  onClick={() => setComposerInput("Identify the top 3 friction points and developer mental models for Prisma vs Drizzle.")}
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
-
-                <textarea
-                  rows={1}
-                  value={composerInput}
-                  onChange={e => setComposerInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendMessage();
-                    }
-                  }}
-                  placeholder="Type a message... (↵ to send, ⇧↵ for newline)"
-                  className="flex-1 bg-transparent border-0 outline-none text-xs text-slate-100 placeholder-slate-500 resize-none px-2 py-1 max-h-32"
-                />
-
-                <button
-                  type="submit"
-                  disabled={!composerInput.trim() || isSendingMessage}
-                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-cyan-600 disabled:opacity-30 disabled:hover:bg-slate-800 text-white flex items-center justify-center transition shadow shrink-0"
-                  title="Send message (Enter)"
-                >
-                  <ArrowUp className="w-4 h-4" />
-                </button>
-              </form>
-            </div>
-          </main>
-
-          {/* Column 3: Settings Sidebar (Matching Screenshot 2026-09-26 230854 & 230901) */}
-          {isRightSidebarOpen && (
-            <aside className="w-80 border-l border-slate-800/80 bg-slate-950/70 flex flex-col shrink-0 overflow-y-auto p-4 space-y-5 text-xs relative select-none">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
-                <span className="font-semibold text-slate-200">Settings</span>
-                <button
-                  onClick={() => setIsRightSidebarOpen(false)}
-                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
-                  title="Collapse Settings"
-                >
-                  <PanelRightClose className="w-3.5 h-3.5" />
-                </button>
+                {isSendingMessage && (
+                  <div className="flex items-center space-x-2 text-xs text-zinc-400 bg-[#12131a] p-3 rounded-xl border border-[#232532] w-max shadow">
+                    <RotateCw className="w-3.5 h-3.5 text-[#9281f7] animate-spin" />
+                    <span>Inference running on {selectedModel?.display_name || playgroundModelId}...</span>
+                  </div>
+                )}
+                <div ref={chatBottomRef} />
               </div>
+            )}
+          </div>
 
-              {/* Model Selector Combobox (Matching Screenshot 230901) */}
+          {/* Bottom Input Box matching Screenshot 2026-09-26 230854 */}
+          <div className="p-4 border-t border-[#1f2026] bg-[#0c0d12] shrink-0">
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                handleSendMessage();
+              }}
+              className="max-w-3xl mx-auto flex items-center bg-[#14151d] border border-[#2a2c38] hover:border-zinc-600 focus-within:border-[#9281f7] rounded-xl px-3 py-2 shadow-xl transition gap-2"
+            >
+              <button
+                type="button"
+                className="p-1 text-zinc-400 hover:text-white transition"
+                title="Insert sample prompt"
+                onClick={() => setComposerInput("Analyze the market opportunity and technical architecture for an autonomous multi-channel research agent.")}
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
+              <textarea
+                rows={1}
+                value={composerInput}
+                onChange={e => setComposerInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="Type a message... (↵ to send, ⇧↵ for newline)"
+                className="flex-1 bg-transparent border-0 outline-none text-xs text-white placeholder:text-zinc-500 resize-none px-2 py-1 max-h-32"
+              />
+
+              <button
+                type="submit"
+                disabled={!composerInput.trim() || isSendingMessage}
+                className="w-8 h-8 rounded-full bg-white hover:bg-zinc-200 disabled:opacity-30 disabled:hover:bg-white text-black flex items-center justify-center transition shadow shrink-0"
+                title="Send message (Enter)"
+              >
+                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            </form>
+          </div>
+        </main>
+
+        {/* Column 3: Settings Sidebar (Matching Screenshot 2026-09-26 230854 & 230901) */}
+        {isRightSidebarOpen && (
+          <aside className="w-80 border-l border-[#1f2026] bg-[#0c0d12] flex flex-col shrink-0 text-xs select-none">
+            <div className="h-12 px-4 border-b border-[#1f2026] flex items-center justify-between text-xs shrink-0">
+              <span className="font-semibold text-zinc-200">Settings</span>
+              <button
+                type="button"
+                onClick={() => setIsRightSidebarOpen(false)}
+                className="p-1 text-zinc-400 hover:text-white hover:bg-zinc-800 rounded transition"
+                title="Collapse Settings"
+              >
+                <PanelRightClose className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+              {/* Model Combobox (Screenshot 230901) */}
               <div className="relative">
-                <label className="text-[11px] font-semibold text-slate-300 block mb-1.5">Model</label>
+                <label className="text-xs font-medium text-zinc-300 block mb-1.5">Model</label>
                 <button
                   type="button"
                   onClick={() => setIsModelSearchOpen(!isModelSearchOpen)}
-                  className="w-full flex items-center justify-between bg-[#10121a] border border-slate-700/80 hover:border-slate-500 rounded-xl px-3 py-2 text-white font-medium text-xs transition shadow-inner"
+                  className="w-full flex items-center justify-between bg-[#14151d] border border-[#2a2c38] hover:border-zinc-500 rounded-lg px-3 py-2 text-white font-medium text-xs transition shadow-sm"
                 >
                   <span className="truncate">{selectedModel?.display_name || playgroundModelId}</span>
-                  <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 ml-2 transition-transform duration-150 ${isModelSearchOpen ? "rotate-180" : ""}`} />
+                  <ChevronsUpDown className="w-4 h-4 text-zinc-400 shrink-0 ml-2" />
                 </button>
 
                 {/* Popover Dropdown matching Screenshot 230901 */}
                 {isModelSearchOpen && (
-                  <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-[#0d0f17] border border-slate-700 rounded-xl shadow-2xl p-2 space-y-2 animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-                      <input
-                        type="text"
-                        placeholder="Search models..."
-                        value={modelSearchFilter}
-                        onChange={e => setModelSearchFilter(e.target.value)}
-                        autoFocus
-                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-950/90 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
-                      />
-                    </div>
-
-                    <div className="max-h-60 overflow-y-auto space-y-0.5 text-xs pr-1 divide-y divide-slate-800/40">
-                      <div className="pb-1 space-y-0.5">
-                        <button
-                          onClick={() => {
-                            setPlaygroundModelId("groq/llama-3.3-70b-versatile");
-                            setIsModelSearchOpen(false);
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-slate-200 hover:bg-slate-800 transition"
-                        >
-                          <span className="font-semibold text-cyan-400">Auto (fallback chain)</span>
-                          <span className="text-[10px] text-slate-500 font-mono">smart-route</span>
-                        </button>
-                        <button
-                          onClick={() => {
-                            setPlaygroundModelId("google/gemini-flash-latest");
-                            setIsModelSearchOpen(false);
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-slate-200 hover:bg-slate-800 transition"
-                        >
-                          <span className="font-semibold text-indigo-400">Fusion (multi-model synthesis)</span>
-                          <span className="text-[10px] text-slate-500 font-mono">ensemble</span>
-                        </button>
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setIsModelSearchOpen(false)}
+                    />
+                    <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-[#12131a] border border-[#2d2e3b] rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-80 animate-in fade-in zoom-in-95 duration-100">
+                      <div className="p-2 border-b border-[#22242e] flex items-center gap-2 bg-[#12131a] shrink-0">
+                        <Search className="w-3.5 h-3.5 text-zinc-400 shrink-0 ml-1" />
+                        <input
+                          type="text"
+                          placeholder="Search models..."
+                          value={modelSearchFilter}
+                          onChange={e => setModelSearchFilter(e.target.value)}
+                          autoFocus
+                          className="w-full bg-transparent text-xs text-white placeholder:text-zinc-500 outline-none"
+                        />
                       </div>
 
-                      <div className="pt-1 space-y-0.5">
-                        {filteredModelsForPicker.slice(0, 50).map(m => {
-                          const isCur = m.id === playgroundModelId;
-                          return (
-                            <button
-                              key={m.id}
-                              onClick={() => {
-                                setPlaygroundModelId(m.id);
-                                setIsModelSearchOpen(false);
-                              }}
-                              className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
-                                isCur
-                                  ? "bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/30"
-                                  : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
-                              }`}
-                            >
-                              <span className="truncate pr-2 font-medium">{m.display_name}</span>
-                              <span className="text-[10px] text-slate-400 font-mono shrink-0 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
-                                {m.platform}
-                              </span>
-                            </button>
-                          );
-                        })}
+                      <div className="flex-1 overflow-y-auto p-1 divide-y divide-[#1e2029]/50">
+                        <div className="pb-1 space-y-0.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPlaygroundModelId("groq/llama-3.3-70b-versatile");
+                              setIsModelSearchOpen(false);
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-zinc-200 hover:bg-[#1f212c] transition"
+                          >
+                            <span className="font-semibold text-white">Auto (fallback chain)</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">smart-route</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPlaygroundModelId("google/gemini-flash-latest");
+                              setIsModelSearchOpen(false);
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-zinc-200 hover:bg-[#1f212c] transition"
+                          >
+                            <span className="font-semibold text-white">Fusion (multi-model synthesis)</span>
+                            <span className="text-[10px] text-zinc-500 font-mono">ensemble</span>
+                          </button>
+                        </div>
+
+                        <div className="pt-1 space-y-0.5">
+                          {filteredModelsForPicker.slice(0, 200).map(m => {
+                            const isCur = m.id === playgroundModelId;
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => {
+                                  setPlaygroundModelId(m.id);
+                                  setIsModelSearchOpen(false);
+                                }}
+                                className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
+                                  isCur
+                                    ? "bg-[#252738] text-white font-medium"
+                                    : "text-zinc-300 hover:bg-[#1a1c26] hover:text-white"
+                                }`}
+                              >
+                                <span className="truncate pr-2">{m.display_name}</span>
+                                <span className="text-[10px] text-zinc-400 font-mono shrink-0">
+                                  {m.platform}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  </>
                 )}
               </div>
 
               {/* System Prompt */}
               <div>
-                <label className="text-[11px] font-semibold text-slate-300 block mb-1.5">System prompt</label>
+                <label className="text-xs font-medium text-zinc-300 block mb-1.5">System prompt</label>
                 <textarea
                   rows={4}
                   value={playgroundSystemPrompt}
                   onChange={e => setPlaygroundSystemPrompt(e.target.value)}
                   placeholder="Optional. Sent as a system message before your chat."
-                  className="w-full bg-[#10121a] border border-slate-800 rounded-xl p-2.5 text-slate-300 placeholder-slate-500 focus:outline-none focus:border-cyan-500 text-[11px] leading-relaxed resize-none font-mono"
+                  className="w-full bg-[#14151d] border border-[#2a2c38] rounded-lg p-2.5 text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-[#9281f7] text-xs leading-relaxed resize-y font-mono"
                 />
               </div>
 
               {/* Sampling Section (Matching Screenshot 2026-09-26 230854) */}
               <div className="space-y-4 pt-1">
                 <div>
-                  <h4 className="font-semibold text-slate-200">Sampling</h4>
-                  <p className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                  <h4 className="font-semibold text-zinc-200 text-xs">Sampling</h4>
+                  <p className="text-[11px] text-zinc-400 leading-snug mt-0.5">
                     Switched off, the provider's own default applies. Only the controls you switch on are sent.
                   </p>
                 </div>
 
                 {/* Temperature */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-300 font-medium">Temperature</span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300">Temperature</span>
                     <button
                       type="button"
                       onClick={() => setTempEnabled(!tempEnabled)}
-                      className="flex items-center space-x-1.5 text-[11px] text-slate-400 hover:text-white"
+                      className="flex items-center space-x-1.5 text-zinc-400 hover:text-white"
                     >
-                      <span className={tempEnabled ? "text-cyan-400 font-semibold" : "text-slate-500"}>
+                      <span className={tempEnabled ? "text-[#9281f7] font-semibold" : "text-zinc-500"}>
                         {tempEnabled ? playgroundTemperature.toFixed(2) : "Default"}
                       </span>
-                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${tempEnabled ? "bg-cyan-600 justify-end" : "bg-slate-800 justify-start"}`}>
+                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${tempEnabled ? "bg-[#9281f7] justify-end" : "bg-[#252733] justify-start"}`}>
                         <span className="w-3 h-3 rounded-full bg-white shadow"></span>
                       </span>
                     </button>
                   </div>
-                  {tempEnabled && (
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.05"
-                      value={playgroundTemperature}
-                      onChange={e => setPlaygroundTemperature(parseFloat(e.target.value))}
-                      className="w-full accent-cyan-500 cursor-pointer"
-                    />
-                  )}
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="1.0"
+                    step="0.05"
+                    disabled={!tempEnabled}
+                    value={playgroundTemperature}
+                    onChange={e => setPlaygroundTemperature(parseFloat(e.target.value))}
+                    className={`w-full accent-[#9281f7] cursor-pointer ${tempEnabled ? "" : "opacity-40 cursor-not-allowed"}`}
+                  />
                 </div>
 
                 {/* Top P */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-300 font-medium">Top P</span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300">Top P</span>
                     <button
                       type="button"
                       onClick={() => setTopPEnabled(!topPEnabled)}
-                      className="flex items-center space-x-1.5 text-[11px] text-slate-400 hover:text-white"
+                      className="flex items-center space-x-1.5 text-zinc-400 hover:text-white"
                     >
-                      <span className={topPEnabled ? "text-cyan-400 font-semibold" : "text-slate-500"}>
+                      <span className={topPEnabled ? "text-[#9281f7] font-semibold" : "text-zinc-500"}>
                         {topPEnabled ? playgroundTopP.toFixed(2) : "Default"}
                       </span>
-                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${topPEnabled ? "bg-cyan-600 justify-end" : "bg-slate-800 justify-start"}`}>
+                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${topPEnabled ? "bg-[#9281f7] justify-end" : "bg-[#252733] justify-start"}`}>
                         <span className="w-3 h-3 rounded-full bg-white shadow"></span>
                       </span>
                     </button>
                   </div>
-                  {topPEnabled && (
-                    <input
-                      type="range"
-                      min="0.0"
-                      max="1.0"
-                      step="0.05"
-                      value={playgroundTopP}
-                      onChange={e => setPlaygroundTopP(parseFloat(e.target.value))}
-                      className="w-full accent-cyan-500 cursor-pointer"
-                    />
-                  )}
+                  <input
+                    type="range"
+                    min="0.0"
+                    max="1.0"
+                    step="0.05"
+                    disabled={!topPEnabled}
+                    value={playgroundTopP}
+                    onChange={e => setPlaygroundTopP(parseFloat(e.target.value))}
+                    className={`w-full accent-[#9281f7] cursor-pointer ${topPEnabled ? "" : "opacity-40 cursor-not-allowed"}`}
+                  />
                 </div>
 
                 {/* Max Tokens */}
                 <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-300 font-medium">Max tokens</span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300">Max tokens</span>
                     <button
                       type="button"
                       onClick={() => setMaxTokensEnabled(!maxTokensEnabled)}
-                      className="flex items-center space-x-1.5 text-[11px] text-slate-400 hover:text-white"
+                      className="flex items-center space-x-1.5 text-zinc-400 hover:text-white"
                     >
-                      <span className={maxTokensEnabled ? "text-cyan-400 font-semibold" : "text-slate-500"}>
+                      <span className={maxTokensEnabled ? "text-[#9281f7] font-semibold" : "text-zinc-500"}>
                         {maxTokensEnabled ? "Custom" : "Default"}
                       </span>
-                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${maxTokensEnabled ? "bg-cyan-600 justify-end" : "bg-slate-800 justify-start"}`}>
+                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${maxTokensEnabled ? "bg-[#9281f7] justify-end" : "bg-[#252733] justify-start"}`}>
                         <span className="w-3 h-3 rounded-full bg-white shadow"></span>
                       </span>
                     </button>
@@ -1102,23 +1086,24 @@ export default function AIModelsPage() {
                     value={playgroundMaxTokens}
                     disabled={!maxTokensEnabled}
                     onChange={e => setPlaygroundMaxTokens(parseInt(e.target.value) || 1024)}
-                    className="w-full bg-[#10121a] border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 disabled:text-slate-600 disabled:border-slate-850 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                    className="w-full bg-[#14151d] border border-[#2a2c38] rounded-lg px-2.5 py-1.5 text-white disabled:text-zinc-500 disabled:opacity-50 font-mono text-xs focus:outline-none focus:border-[#9281f7]"
                   />
                 </div>
               </div>
 
               {/* Set as Active Engine Button & Pipeline status */}
               {selectedModel && (
-                <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="pt-2 border-t border-[#1f2026] space-y-2">
                   <button
+                    type="button"
                     onClick={() => handleSetActiveEngine(selectedModel)}
                     disabled={updatingConfig}
-                    className="w-full py-2 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                    className="w-full py-2 px-3 rounded-lg bg-[#9281f7] hover:bg-[#806ff5] text-white font-semibold text-xs transition shadow flex items-center justify-center space-x-1.5 disabled:opacity-50"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>{updatingConfig ? "Activating..." : "Make Active for All Pipelines"}</span>
                   </button>
-                  <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 space-y-1">
+                  <div className="p-2.5 rounded-lg bg-[#14151d] border border-[#232532] text-[10px] text-zinc-400 space-y-1 font-mono">
                     <div className="flex items-center space-x-1 text-emerald-400">
                       <Check className="w-3 h-3" />
                       <span>Product Research Query Planner</span>
@@ -1134,9 +1119,9 @@ export default function AIModelsPage() {
                   </div>
                 </div>
               )}
-            </aside>
-          )}
-        </div>
+            </div>
+          </aside>
+        )}
       </div>
     );
   }
@@ -1776,5 +1761,13 @@ export default function AIModelsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function AIModelsPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0c0d12] text-zinc-500 font-mono text-xs flex items-center justify-center">Connecting to AI Models Studio...</div>}>
+      <ModelsContent />
+    </Suspense>
   );
 }
