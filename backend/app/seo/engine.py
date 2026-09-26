@@ -86,9 +86,20 @@ class SeoAuditEngine:
         )
 
         # -------------------------------------------------------------
-        # Phase 6: SEO Drift & Aggregate Scoring
+        # Phase 6: AI Search Engine Optimization (GEO) & Strategic SERP Synthesis
         # -------------------------------------------------------------
-        notify("drift_check", 95, "Comparing metrics against baseline snapshot to detect regressions...")
+        from app.engine.ai_planner import AIResearchPlanner
+        from app.core.ai_config import AIConfigManager
+        ai_planner = AIResearchPlanner()
+        active_ai_cfg = AIConfigManager.get_instance().get_config()
+        
+        notify("ai_synthesis", 92, f"AI Model ({active_ai_cfg.active_model_name}) synthesizing AI citation strategy and SERP recommendations...")
+        ai_insights = await ai_planner.generate_seo_strategic_audit(url, crawl_data)
+
+        # -------------------------------------------------------------
+        # Phase 7: SEO Drift & Aggregate Scoring
+        # -------------------------------------------------------------
+        notify("drift_check", 96, "Comparing metrics against baseline snapshot to detect regressions...")
         
         tech_score = crawl_data.get("score", 70)
         geo_score = geo_result.get("overall_score", 50)
@@ -157,5 +168,6 @@ class SeoAuditEngine:
             "images": image_result,
             "keywords": keyword_result,
             "drift": drift_result,
-            "new_snapshot": new_snapshot
+            "new_snapshot": new_snapshot,
+            "ai_insights": ai_insights
         }

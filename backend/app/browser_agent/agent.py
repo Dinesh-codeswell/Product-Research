@@ -65,14 +65,16 @@ class LiveBrowserAgent:
         query: str,
         channels: List[str],
         max_items: int,
-        event_publisher: Callable[[str, str, int, str, Optional[Dict[str, Any]]], None]
+        event_publisher: Callable[[str, str, int, str, Optional[Dict[str, Any]]], None],
+        planned_queries: Optional[Dict[str, List[str]]] = None,
+        subreddits: Optional[List[str]] = None
     ) -> List[ChannelItem]:
         """Runs the interactive browser agent in a dedicated thread to ensure event loop compatibility."""
         import asyncio
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(
             None,
-            lambda: self._sync_sweep_execution(loop, session_id, query, channels, max_items, event_publisher)
+            lambda: self._sync_sweep_execution(loop, session_id, query, channels, max_items, event_publisher, planned_queries, subreddits)
         )
 
     def _sync_sweep_execution(
@@ -82,7 +84,9 @@ class LiveBrowserAgent:
         query: str,
         channels: List[str],
         max_items: int,
-        event_publisher: Callable
+        event_publisher: Callable,
+        planned_queries: Optional[Dict[str, List[str]]] = None,
+        subreddits: Optional[List[str]] = None
     ) -> List[ChannelItem]:
         from playwright.sync_api import sync_playwright
 
@@ -180,26 +184,27 @@ class LiveBrowserAgent:
 
                 for channel in channels:
                     ch_lower = channel.lower()
+                    ch_query = (planned_queries.get(ch_lower) or [query])[0] if planned_queries else query
                     if ch_lower == "reddit":
-                        items = self._sync_sweep_reddit(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_reddit(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
                     elif ch_lower == "youtube":
-                        items = self._sync_sweep_youtube(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_youtube(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
                     elif ch_lower == "hackernews":
-                        items = self._sync_sweep_hackernews(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_hackernews(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
                     elif ch_lower == "twitter":
-                        items = self._sync_sweep_twitter(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_twitter(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
                     elif ch_lower == "github":
-                        items = self._sync_sweep_github(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_github(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
                     elif ch_lower == "facebook":
-                        items = self._sync_sweep_facebook(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_facebook(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
                     elif ch_lower in ["google", "web", "duckduckgo"]:
-                        items = self._sync_sweep_google(page, query, items_per_channel, percent, emit)
+                        items = self._sync_sweep_google(page, ch_query, items_per_channel, percent, emit)
                         harvested_items.extend(items)
 
                     percent = min(80, percent + percent_step)

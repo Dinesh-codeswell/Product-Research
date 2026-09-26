@@ -38,6 +38,7 @@ export default function SeoAuditPage() {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedSchema, setCopiedSchema] = useState(false);
   const [copiedMeta, setCopiedMeta] = useState(false);
+  const [copiedTitle, setCopiedTitle] = useState(false);
 
   const fetchAudit = async () => {
     try {
@@ -106,6 +107,7 @@ export default function SeoAuditPage() {
   const meta = results?.meta;
   const images = results?.images;
   const drift = results?.drift;
+  const aiInsights = results?.ai_insights;
 
   return (
     <div className="space-y-10 animate-in fade-in duration-200">
@@ -443,6 +445,128 @@ export default function SeoAuditPage() {
                   <li key={idx} className="leading-relaxed">{rec}</li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {/* AI Engine Strategic Positioning & Citation Strategy */}
+          {aiInsights && (
+            <div className="p-6 rounded-[16px] bg-[#000000] border border-[#9281f7]/60 space-y-5 shadow-subtle relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-64 h-64 bg-[#9281f7]/5 rounded-full blur-3xl pointer-events-none" />
+              
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#292d30]">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded bg-[#9281f7]/10 text-[#9281f7]">
+                    <Sparkles className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-sans font-semibold text-[#ffffff]">
+                      AI Engine Strategic Positioning &amp; Citation Strategy
+                    </h3>
+                    <p className="text-[11px] font-mono text-[#a1a4a5]">
+                      Evaluated for Perplexity, ChatGPT Search, and Google Gemini citations
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#9281f7]/10 text-[#9281f7] border border-[#9281f7]/30 uppercase self-start sm:self-auto">
+                  GEO Ready
+                </span>
+              </div>
+
+              {/* Brand Positioning & Citation Readiness */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-[12px] bg-[#0a0a0f] border border-[#292d30] space-y-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-[#a1a4a5]">
+                    Recognized Brand Entity
+                  </div>
+                  <div className="text-xs font-sans text-[#f0f0f0] leading-relaxed">
+                    {aiInsights.brand_positioning}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-[12px] bg-[#0a0a0f] border border-[#292d30] space-y-1.5">
+                  <div className="text-[10px] font-mono uppercase tracking-wider text-[#9281f7]">
+                    Citation Readiness Verdict
+                  </div>
+                  <div className="text-xs font-sans text-[#f0f0f0] leading-relaxed">
+                    {aiInsights.geo_readiness}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quotability Actions */}
+              {Boolean(aiInsights.llm_quotability_actions && aiInsights.llm_quotability_actions.length > 0) && (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-mono text-[#ffffff] font-medium flex items-center gap-1.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-[#3ad389]" />
+                    <span>Tactical LLM Quotability Actions</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {aiInsights.llm_quotability_actions!.map((act: string, idx: number) => (
+                      <div key={idx} className="p-3 rounded-[8px] bg-[#08090d] border border-[#292d30] text-xs font-sans text-[#c8cbd0] flex items-start gap-2">
+                        <span className="text-[#9281f7] font-mono text-[10px] mt-0.5">#{idx + 1}</span>
+                        <span className="leading-snug">{act}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* High-CTR Synthesized Title & Meta with Copy buttons */}
+              {(aiInsights.high_ctr_serp_title || aiInsights.high_ctr_meta_description) && (
+                <div className="p-4 rounded-[12px] bg-[#08090d] border border-[#292d30] space-y-3">
+                  <div className="text-[11px] font-mono text-[#ffffff] font-medium">
+                    AI-Optimized SERP Title &amp; Description
+                  </div>
+                  
+                  {aiInsights.high_ctr_serp_title && (
+                    <div className="flex items-center justify-between gap-3 text-xs font-sans bg-[#000000] p-2.5 rounded-[8px] border border-[#292d30]">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-mono text-[#a1a4a5] block">Optimized Title:</span>
+                        <span className="text-[#8ab4f8] font-medium truncate block">{aiInsights.high_ctr_serp_title}</span>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(aiInsights.high_ctr_serp_title!, setCopiedTitle)}
+                        className="px-2.5 py-1 rounded bg-[#1f2228] hover:bg-[#2b2e36] text-[10px] font-mono text-[#f0f0f0] flex items-center gap-1 shrink-0 transition-colors"
+                      >
+                        {copiedTitle ? <Check className="h-3 w-3 text-[#3ad389]" /> : <Copy className="h-3 w-3 text-[#a1a4a5]" />}
+                        <span>{copiedTitle ? "Copied" : "Copy"}</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {aiInsights.high_ctr_meta_description && (
+                    <div className="flex items-center justify-between gap-3 text-xs font-sans bg-[#000000] p-2.5 rounded-[8px] border border-[#292d30]">
+                      <div className="min-w-0 flex-1">
+                        <span className="text-[10px] font-mono text-[#a1a4a5] block">Optimized Meta Description:</span>
+                        <span className="text-[#bdc1c6] line-clamp-2">{aiInsights.high_ctr_meta_description}</span>
+                      </div>
+                      <button
+                        onClick={() => copyToClipboard(aiInsights.high_ctr_meta_description!, setCopiedMeta)}
+                        className="px-2.5 py-1 rounded bg-[#1f2228] hover:bg-[#2b2e36] text-[10px] font-mono text-[#f0f0f0] flex items-center gap-1 shrink-0 transition-colors"
+                      >
+                        {copiedMeta ? <Check className="h-3 w-3 text-[#3ad389]" /> : <Copy className="h-3 w-3 text-[#a1a4a5]" />}
+                        <span>{copiedMeta ? "Copied" : "Copy"}</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Keyword Gap Opportunities */}
+              {Boolean(aiInsights.keyword_gaps && aiInsights.keyword_gaps.length > 0) && (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-mono text-[#a1a4a5] uppercase tracking-wider">
+                    High-Intent Keyword Gap Opportunities
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {aiInsights.keyword_gaps!.map((kw: string, idx: number) => (
+                      <span key={idx} className="px-2.5 py-1 rounded-full bg-[#161820] border border-[#292d30] text-[11px] font-mono text-[#9281f7]">
+                        {kw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

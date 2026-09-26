@@ -41,7 +41,14 @@ import {
   Volume2,
   Radio,
   Share2,
-  Bot
+  Bot,
+  Paperclip,
+  ChevronDown,
+  ArrowUp,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelRightClose,
+  PanelRightOpen
 } from "lucide-react";
 
 interface ModelEndpoint {
@@ -225,6 +232,14 @@ export default function AIModelsPage() {
   const [playgroundSystemPrompt, setPlaygroundSystemPrompt] = useState("You are an expert Chief Product Officer helping analyze product opportunities, features, and user discovery.");
   const [playgroundTemperature, setPlaygroundTemperature] = useState(0.4);
   const [playgroundMaxTokens, setPlaygroundMaxTokens] = useState(1000);
+  const [playgroundTopP, setPlaygroundTopP] = useState(0.9);
+  const [tempEnabled, setTempEnabled] = useState(false);
+  const [topPEnabled, setTopPEnabled] = useState(false);
+  const [maxTokensEnabled, setMaxTokensEnabled] = useState(false);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [isModelSearchOpen, setIsModelSearchOpen] = useState(false);
+  const [modelSearchFilter, setModelSearchFilter] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [testResult, setTestResult] = useState<any>(null);
   const [testingEndpoint, setTestingEndpoint] = useState(false);
@@ -414,18 +429,25 @@ export default function AIModelsPage() {
     saveConversations(updatedConvs);
     setIsSendingMessage(true);
 
+    const payloadMessages = updatedMessages.map(m => ({ role: m.role, content: m.content }));
+
     try {
-      const payloadMessages = updatedMessages.map(m => ({ role: m.role, content: m.content }));
+      const payload: any = {
+        messages: payloadMessages,
+        model_id: playgroundModelId,
+        system_prompt: playgroundSystemPrompt
+      };
+      if (tempEnabled) {
+        payload.temperature = playgroundTemperature;
+      }
+      if (maxTokensEnabled) {
+        payload.max_tokens = playgroundMaxTokens;
+      }
+
       const res = await fetch(`${BACKEND_URL}/api/v1/models/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: payloadMessages,
-          model_id: playgroundModelId,
-          temperature: playgroundTemperature,
-          max_tokens: playgroundMaxTokens,
-          system_prompt: playgroundSystemPrompt
-        })
+        body: JSON.stringify(payload)
       });
 
       if (!res.ok) {
@@ -607,6 +629,517 @@ export default function AIModelsPage() {
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  const selectedModel = useMemo(() => {
+    return models.find(m => m.id === playgroundModelId) || null;
+  }, [models, playgroundModelId]);
+
+  const filteredModelsForPicker = useMemo(() => {
+    if (!modelSearchFilter.trim()) return models;
+    const q = modelSearchFilter.toLowerCase();
+    return models.filter(m =>
+      m.display_name.toLowerCase().includes(q) ||
+      m.id.toLowerCase().includes(q) ||
+      m.platform.toLowerCase().includes(q) ||
+      m.provider_name.toLowerCase().includes(q)
+    );
+  }, [models, modelSearchFilter]);
+
+  // DEDICATED FULL-SCREEN PLAYGROUND STUDIO (Matching Screenshot 2026-09-26 230854 & 230901)
+  if (activeTab === "playground") {
+    return (
+      <div className="h-screen w-screen overflow-hidden flex flex-col bg-[#07080c] text-slate-100 select-none">
+        {/* Sleek Top Navigation Bar (Only ~44px height, leaves 93%+ vertical space to the playground) */}
+        <header className="h-11 border-b border-slate-800/80 bg-slate-950/95 px-3 flex items-center justify-between shrink-0 z-30">
+          <div className="flex items-center space-x-3 overflow-x-auto no-scrollbar">
+            <Link href="/" className="flex items-center space-x-1.5 text-slate-400 hover:text-white transition shrink-0">
+              <Cpu className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs font-bold text-white tracking-tight">PulseRadar</span>
+            </Link>
+            <span className="text-slate-800">|</span>
+            <nav className="flex items-center space-x-1 shrink-0">
+              {MODALITY_TABS.map(tab => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center space-x-1 px-2.5 py-1 text-xs rounded-md transition ${
+                      isActive
+                        ? "bg-cyan-500/10 text-cyan-400 font-semibold border border-cyan-500/30"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 border border-transparent"
+                    }`}
+                  >
+                    <Icon className="w-3 h-3" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0">
+            {config && (
+              <div className="hidden lg:flex items-center space-x-1.5 px-2 py-0.5 rounded bg-slate-900 border border-slate-800 text-[11px]">
+                <span className="text-slate-500">Pipeline Engine:</span>
+                <span className="font-semibold text-cyan-400">{config.active_model_name}</span>
+                <span className="text-slate-600">({config.active_provider})</span>
+              </div>
+            )}
+            <Link
+              href="/"
+              className="px-2.5 py-1 text-xs rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition flex items-center space-x-1"
+            >
+              <span>Product Research</span>
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+            <Link
+              href="/seo"
+              className="px-2.5 py-1 text-xs rounded bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 hover:text-white transition"
+            >
+              SEO Studio
+            </Link>
+          </div>
+        </header>
+
+        {/* 3-Column Edge-to-Edge Playground Layout (Matching Screenshot 2026-09-26 230854 & 230901) */}
+        <div className="flex-1 min-h-0 w-full flex overflow-hidden relative">
+          {/* Column 1: Conversations Sidebar (Collapsible) */}
+          {isLeftSidebarOpen ? (
+            <aside className="w-64 border-r border-slate-800/80 bg-slate-950/70 flex flex-col shrink-0 select-none">
+              <div className="h-10 px-3 border-b border-slate-800/60 flex items-center justify-between text-xs">
+                <span className="font-semibold text-slate-300 tracking-wide">Conversations</span>
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={createNewConversation}
+                    className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
+                    title="New Conversation"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setIsLeftSidebarOpen(false)}
+                    className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
+                    title="Collapse sidebar"
+                  >
+                    <PanelLeftClose className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                {conversations.map(c => {
+                  const isCur = c.id === activeConversation?.id;
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => setActiveConversationId(c.id)}
+                      className={`p-2.5 rounded-xl cursor-pointer transition text-xs flex items-center justify-between group ${
+                        isCur
+                          ? "bg-slate-800/90 text-white font-medium border border-slate-700/80 shadow-sm"
+                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-900/60"
+                      }`}
+                    >
+                      <div className="flex flex-col truncate pr-2">
+                        <span className="truncate font-medium">{c.title || "New Chat"}</span>
+                        <span className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          {c.createdAt || "just now"} · {c.messages?.length || 0} messages
+                        </span>
+                      </div>
+                      <button
+                        onClick={e => deleteConversation(c.id, e)}
+                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1 transition"
+                        title="Delete conversation"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </aside>
+          ) : (
+            <button
+              onClick={() => setIsLeftSidebarOpen(true)}
+              className="absolute left-2.5 top-2.5 z-20 p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-white shadow-xl transition"
+              title="Expand Conversations"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Column 2: Center Chat Testing Viewport */}
+          <main className="flex-1 min-h-0 flex flex-col bg-[#050608] relative">
+            {/* Top Subheader: "Playground · <Model Name>" */}
+            <div className="h-10 px-4 border-b border-slate-800/60 bg-slate-950/40 flex items-center justify-between shrink-0">
+              <div className="flex items-center space-x-2 text-xs">
+                <span className="font-bold text-white tracking-tight">Playground</span>
+                <span className="text-slate-600">·</span>
+                <span className="text-cyan-400 font-semibold truncate max-w-xs md:max-w-md">
+                  {selectedModel?.display_name || playgroundModelId.split("/").pop()}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.2 rounded bg-slate-900 border border-slate-800">
+                  {selectedModel?.provider_name || playgroundModelId.split("/")[0]}
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => {
+                    const finalConvs = conversations.map(c => {
+                      if (c.id === activeConversation?.id) {
+                        return { ...c, messages: [] };
+                      }
+                      return c;
+                    });
+                    saveConversations(finalConvs);
+                  }}
+                  className="text-xs text-slate-400 hover:text-slate-200 px-2.5 py-1 rounded hover:bg-slate-800/60 transition"
+                >
+                  Clear Chat
+                </button>
+                {!isRightSidebarOpen && (
+                  <button
+                    onClick={() => setIsRightSidebarOpen(true)}
+                    className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
+                    title="Open Settings"
+                  >
+                    <PanelRightOpen className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Chat Message Stream (Independent scrolling, NO parent page scroll!) */}
+            <div className="flex-1 overflow-y-auto px-4 md:px-12 py-6 space-y-4">
+              {(!activeConversation?.messages || activeConversation.messages.length === 0) ? (
+                <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto space-y-2 select-none py-28">
+                  <h3 className="text-lg font-bold text-white">Send a message to get started.</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Using {selectedModel?.display_name || playgroundModelId}. Switch models in the selector on the right panel.
+                  </p>
+                </div>
+              ) : (
+                activeConversation.messages.map(msg => (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed ${
+                        msg.role === "user"
+                          ? "bg-cyan-600 text-white shadow-md shadow-cyan-950/20 rounded-br-sm"
+                          : "bg-slate-900/95 text-slate-200 border border-slate-800 shadow-md rounded-bl-sm whitespace-pre-wrap font-sans"
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+
+                    <div className="flex items-center space-x-2 mt-1 text-[10px] text-slate-500 px-1 font-mono">
+                      <span>{msg.timestamp}</span>
+                      {msg.latency_ms && <span>· {msg.latency_ms} ms</span>}
+                      {msg.model_used && <span>· {msg.model_used.split("/").pop()}</span>}
+                      <button
+                        onClick={() => copyToClipboard(msg.content, msg.id)}
+                        className="hover:text-slate-300 transition ml-1"
+                        title="Copy text"
+                      >
+                        {copiedId === msg.id ? <Check className="w-3 h-3 text-emerald-400 inline" /> : <Copy className="w-3 h-3 inline" />}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {isSendingMessage && (
+                <div className="flex items-center space-x-2 text-xs text-slate-400 bg-slate-900/80 p-3 rounded-xl border border-slate-800/80 w-max shadow">
+                  <RotateCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
+                  <span>Inference running on {selectedModel?.display_name || playgroundModelId}...</span>
+                </div>
+              )}
+              <div ref={chatBottomRef} />
+            </div>
+
+            {/* Bottom Input Box matching Screenshot 2026-09-26 230854 */}
+            <div className="p-4 border-t border-slate-800/60 bg-[#050608] shrink-0">
+              <form
+                onSubmit={e => {
+                  e.preventDefault();
+                  handleSendMessage();
+                }}
+                className="max-w-4xl mx-auto flex items-center bg-[#0d0f15] border border-slate-800 hover:border-slate-700 focus-within:border-cyan-500/80 rounded-2xl px-3.5 py-2 shadow-2xl transition gap-2"
+              >
+                <button
+                  type="button"
+                  className="p-1 text-slate-500 hover:text-slate-300 transition"
+                  title="Insert Product Research prompt"
+                  onClick={() => setComposerInput("Identify the top 3 friction points and developer mental models for Prisma vs Drizzle.")}
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+
+                <textarea
+                  rows={1}
+                  value={composerInput}
+                  onChange={e => setComposerInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }
+                  }}
+                  placeholder="Type a message... (↵ to send, ⇧↵ for newline)"
+                  className="flex-1 bg-transparent border-0 outline-none text-xs text-slate-100 placeholder-slate-500 resize-none px-2 py-1 max-h-32"
+                />
+
+                <button
+                  type="submit"
+                  disabled={!composerInput.trim() || isSendingMessage}
+                  className="w-8 h-8 rounded-full bg-slate-800 hover:bg-cyan-600 disabled:opacity-30 disabled:hover:bg-slate-800 text-white flex items-center justify-center transition shadow shrink-0"
+                  title="Send message (Enter)"
+                >
+                  <ArrowUp className="w-4 h-4" />
+                </button>
+              </form>
+            </div>
+          </main>
+
+          {/* Column 3: Settings Sidebar (Matching Screenshot 2026-09-26 230854 & 230901) */}
+          {isRightSidebarOpen && (
+            <aside className="w-80 border-l border-slate-800/80 bg-slate-950/70 flex flex-col shrink-0 overflow-y-auto p-4 space-y-5 text-xs relative select-none">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
+                <span className="font-semibold text-slate-200">Settings</span>
+                <button
+                  onClick={() => setIsRightSidebarOpen(false)}
+                  className="p-1 text-slate-400 hover:text-white hover:bg-slate-800 rounded transition"
+                  title="Collapse Settings"
+                >
+                  <PanelRightClose className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Model Selector Combobox (Matching Screenshot 230901) */}
+              <div className="relative">
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1.5">Model</label>
+                <button
+                  type="button"
+                  onClick={() => setIsModelSearchOpen(!isModelSearchOpen)}
+                  className="w-full flex items-center justify-between bg-[#10121a] border border-slate-700/80 hover:border-slate-500 rounded-xl px-3 py-2 text-white font-medium text-xs transition shadow-inner"
+                >
+                  <span className="truncate">{selectedModel?.display_name || playgroundModelId}</span>
+                  <ChevronDown className={`w-4 h-4 text-slate-400 shrink-0 ml-2 transition-transform duration-150 ${isModelSearchOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {/* Popover Dropdown matching Screenshot 230901 */}
+                {isModelSearchOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-[#0d0f17] border border-slate-700 rounded-xl shadow-2xl p-2 space-y-2 animate-in fade-in zoom-in-95 duration-100 backdrop-blur-md">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+                      <input
+                        type="text"
+                        placeholder="Search models..."
+                        value={modelSearchFilter}
+                        onChange={e => setModelSearchFilter(e.target.value)}
+                        autoFocus
+                        className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-950/90 border border-slate-800 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-500"
+                      />
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-0.5 text-xs pr-1 divide-y divide-slate-800/40">
+                      <div className="pb-1 space-y-0.5">
+                        <button
+                          onClick={() => {
+                            setPlaygroundModelId("groq/llama-3.3-70b-versatile");
+                            setIsModelSearchOpen(false);
+                          }}
+                          className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-slate-200 hover:bg-slate-800 transition"
+                        >
+                          <span className="font-semibold text-cyan-400">Auto (fallback chain)</span>
+                          <span className="text-[10px] text-slate-500 font-mono">smart-route</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setPlaygroundModelId("google/gemini-flash-latest");
+                            setIsModelSearchOpen(false);
+                          }}
+                          className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left text-slate-200 hover:bg-slate-800 transition"
+                        >
+                          <span className="font-semibold text-indigo-400">Fusion (multi-model synthesis)</span>
+                          <span className="text-[10px] text-slate-500 font-mono">ensemble</span>
+                        </button>
+                      </div>
+
+                      <div className="pt-1 space-y-0.5">
+                        {filteredModelsForPicker.slice(0, 50).map(m => {
+                          const isCur = m.id === playgroundModelId;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => {
+                                setPlaygroundModelId(m.id);
+                                setIsModelSearchOpen(false);
+                              }}
+                              className={`w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between text-left transition ${
+                                isCur
+                                  ? "bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/30"
+                                  : "text-slate-300 hover:bg-slate-800/80 hover:text-white"
+                              }`}
+                            >
+                              <span className="truncate pr-2 font-medium">{m.display_name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono shrink-0 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
+                                {m.platform}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* System Prompt */}
+              <div>
+                <label className="text-[11px] font-semibold text-slate-300 block mb-1.5">System prompt</label>
+                <textarea
+                  rows={4}
+                  value={playgroundSystemPrompt}
+                  onChange={e => setPlaygroundSystemPrompt(e.target.value)}
+                  placeholder="Optional. Sent as a system message before your chat."
+                  className="w-full bg-[#10121a] border border-slate-800 rounded-xl p-2.5 text-slate-300 placeholder-slate-500 focus:outline-none focus:border-cyan-500 text-[11px] leading-relaxed resize-none font-mono"
+                />
+              </div>
+
+              {/* Sampling Section (Matching Screenshot 2026-09-26 230854) */}
+              <div className="space-y-4 pt-1">
+                <div>
+                  <h4 className="font-semibold text-slate-200">Sampling</h4>
+                  <p className="text-[10px] text-slate-400 leading-tight mt-0.5">
+                    Switched off, the provider's own default applies. Only the controls you switch on are sent.
+                  </p>
+                </div>
+
+                {/* Temperature */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 font-medium">Temperature</span>
+                    <button
+                      type="button"
+                      onClick={() => setTempEnabled(!tempEnabled)}
+                      className="flex items-center space-x-1.5 text-[11px] text-slate-400 hover:text-white"
+                    >
+                      <span className={tempEnabled ? "text-cyan-400 font-semibold" : "text-slate-500"}>
+                        {tempEnabled ? playgroundTemperature.toFixed(2) : "Default"}
+                      </span>
+                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${tempEnabled ? "bg-cyan-600 justify-end" : "bg-slate-800 justify-start"}`}>
+                        <span className="w-3 h-3 rounded-full bg-white shadow"></span>
+                      </span>
+                    </button>
+                  </div>
+                  {tempEnabled && (
+                    <input
+                      type="range"
+                      min="0.0"
+                      max="1.0"
+                      step="0.05"
+                      value={playgroundTemperature}
+                      onChange={e => setPlaygroundTemperature(parseFloat(e.target.value))}
+                      className="w-full accent-cyan-500 cursor-pointer"
+                    />
+                  )}
+                </div>
+
+                {/* Top P */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 font-medium">Top P</span>
+                    <button
+                      type="button"
+                      onClick={() => setTopPEnabled(!topPEnabled)}
+                      className="flex items-center space-x-1.5 text-[11px] text-slate-400 hover:text-white"
+                    >
+                      <span className={topPEnabled ? "text-cyan-400 font-semibold" : "text-slate-500"}>
+                        {topPEnabled ? playgroundTopP.toFixed(2) : "Default"}
+                      </span>
+                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${topPEnabled ? "bg-cyan-600 justify-end" : "bg-slate-800 justify-start"}`}>
+                        <span className="w-3 h-3 rounded-full bg-white shadow"></span>
+                      </span>
+                    </button>
+                  </div>
+                  {topPEnabled && (
+                    <input
+                      type="range"
+                      min="0.0"
+                      max="1.0"
+                      step="0.05"
+                      value={playgroundTopP}
+                      onChange={e => setPlaygroundTopP(parseFloat(e.target.value))}
+                      className="w-full accent-cyan-500 cursor-pointer"
+                    />
+                  )}
+                </div>
+
+                {/* Max Tokens */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300 font-medium">Max tokens</span>
+                    <button
+                      type="button"
+                      onClick={() => setMaxTokensEnabled(!maxTokensEnabled)}
+                      className="flex items-center space-x-1.5 text-[11px] text-slate-400 hover:text-white"
+                    >
+                      <span className={maxTokensEnabled ? "text-cyan-400 font-semibold" : "text-slate-500"}>
+                        {maxTokensEnabled ? "Custom" : "Default"}
+                      </span>
+                      <span className={`w-7 h-4 rounded-full flex items-center px-0.5 transition ${maxTokensEnabled ? "bg-cyan-600 justify-end" : "bg-slate-800 justify-start"}`}>
+                        <span className="w-3 h-3 rounded-full bg-white shadow"></span>
+                      </span>
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    value={playgroundMaxTokens}
+                    disabled={!maxTokensEnabled}
+                    onChange={e => setPlaygroundMaxTokens(parseInt(e.target.value) || 1024)}
+                    className="w-full bg-[#10121a] border border-slate-800 rounded-lg px-2.5 py-1.5 text-slate-200 disabled:text-slate-600 disabled:border-slate-850 font-mono text-xs focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {/* Set as Active Engine Button & Pipeline status */}
+              {selectedModel && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                  <button
+                    onClick={() => handleSetActiveEngine(selectedModel)}
+                    disabled={updatingConfig}
+                    className="w-full py-2 px-3 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold text-xs transition shadow flex items-center justify-center space-x-1.5 disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>{updatingConfig ? "Activating..." : "Make Active for All Pipelines"}</span>
+                  </button>
+                  <div className="p-2.5 rounded-lg bg-slate-900/60 border border-slate-800 text-[10px] text-slate-400 space-y-1">
+                    <div className="flex items-center space-x-1 text-emerald-400">
+                      <Check className="w-3 h-3" />
+                      <span>Product Research Query Planner</span>
+                    </div>
+                    <div className="flex items-center space-x-1 text-emerald-400">
+                      <Check className="w-3 h-3" />
+                      <span>Autonomous Browser Agent Navigation</span>
+                    </div>
+                    <div className="flex items-center space-x-1 text-emerald-400">
+                      <Check className="w-3 h-3" />
+                      <span>Generative Engine Optimization (GEO)</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </aside>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 pb-20">
@@ -1133,230 +1666,7 @@ export default function AIModelsPage() {
           </div>
         )}
 
-        {/* TAB 8: CONVERSATIONAL PLAYGROUND (Matching Screenshot 3 & 4) */}
-        {activeTab === "playground" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[750px] rounded-2xl border border-slate-800 bg-slate-900/40 overflow-hidden shadow-2xl">
-            {/* Left Column: Conversations List (Screenshot 3 & 4 Sidebar) */}
-            <div className="lg:col-span-3 border-r border-slate-800 flex flex-col bg-slate-950/40">
-              <div className="p-3 border-b border-slate-800 flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Conversations</span>
-                <button
-                  onClick={createNewConversation}
-                  className="px-2 py-1 text-xs bg-cyan-600 hover:bg-cyan-500 text-white rounded-md flex items-center space-x-1 shadow transition"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>New</span>
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                {conversations.map(c => {
-                  const isCur = c.id === activeConversationId;
-                  return (
-                    <div
-                      key={c.id}
-                      onClick={() => setActiveConversationId(c.id)}
-                      className={`p-2.5 rounded-lg cursor-pointer transition text-xs flex items-center justify-between group ${
-                        isCur
-                          ? "bg-slate-800/90 text-white border border-slate-700"
-                          : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2 truncate">
-                        <MessageSquare className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
-                        <span className="truncate font-medium">{c.title}</span>
-                      </div>
-                      <button
-                        onClick={e => deleteConversation(c.id, e)}
-                        className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-rose-400 p-1"
-                        title="Delete conversation"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Center Column: Live Chat Viewport (Screenshot 3 & 4 Chat area) */}
-            <div className="lg:col-span-6 flex flex-col bg-slate-950/20">
-              {/* Top Bar: Searchable Model Combobox */}
-              <div className="p-3 border-b border-slate-800 bg-slate-900/60 flex items-center justify-between gap-3">
-                <div className="flex-1 flex items-center space-x-2">
-                  <Bot className="w-4 h-4 text-cyan-400 flex-shrink-0" />
-                  <select
-                    value={playgroundModelId}
-                    onChange={e => setPlaygroundModelId(e.target.value)}
-                    className="w-full text-xs font-semibold bg-slate-950 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-white focus:outline-none focus:border-cyan-500"
-                  >
-                    {models.map(m => (
-                      <option key={m.id} value={m.id}>
-                        {m.display_name} ({m.provider_name}) — {m.size_label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <button
-                  onClick={() => {
-                    const finalConvs = conversations.map(c => {
-                      if (c.id === activeConversation?.id) {
-                        return { ...c, messages: [] };
-                      }
-                      return c;
-                    });
-                    saveConversations(finalConvs);
-                  }}
-                  className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1 rounded hover:bg-slate-800"
-                >
-                  Clear
-                </button>
-              </div>
-
-              {/* Chat Message Stream */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {activeConversation?.messages.map(msg => (
-                  <div
-                    key={msg.id}
-                    className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-                  >
-                    <div
-                      className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed ${
-                        msg.role === "user"
-                          ? "bg-cyan-600 text-white shadow-md shadow-cyan-950/20 rounded-br-sm"
-                          : "bg-slate-900/90 text-slate-200 border border-slate-800 shadow-md rounded-bl-sm whitespace-pre-wrap"
-                      }`}
-                    >
-                      {msg.content}
-                    </div>
-
-                    {/* Metadata line */}
-                    <div className="flex items-center space-x-2 mt-1 text-[10px] text-slate-500 px-1">
-                      <span>{msg.timestamp}</span>
-                      {msg.latency_ms && <span>· {msg.latency_ms} ms</span>}
-                      {msg.model_used && <span>· {msg.model_used.split("/").pop()}</span>}
-                    </div>
-                  </div>
-                ))}
-
-                {isSendingMessage && (
-                  <div className="flex items-center space-x-2 text-xs text-slate-400 bg-slate-900/60 p-3 rounded-xl border border-slate-800/80 w-max">
-                    <RotateCw className="w-3.5 h-3.5 text-cyan-400 animate-spin" />
-                    <span>Inference running on {playgroundModelId}...</span>
-                  </div>
-                )}
-                <div ref={chatBottomRef} />
-              </div>
-
-              {/* Bottom Message Composer */}
-              <div className="p-3 border-t border-slate-800 bg-slate-900/40">
-                <form
-                  onSubmit={e => {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }}
-                  className="flex items-end space-x-2"
-                >
-                  <textarea
-                    rows={2}
-                    value={composerInput}
-                    onChange={e => setComposerInput(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendMessage();
-                      }
-                    }}
-                    placeholder={`Message ${playgroundModelId.split("/").pop()}... (Enter to send, Shift+Enter for newline)`}
-                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 resize-none transition"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!composerInput.trim() || isSendingMessage}
-                    className="p-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white rounded-xl shadow-md transition"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
-              </div>
-            </div>
-
-            {/* Right Column: Settings Rail Drawer (Screenshot 3 & 4 Settings) */}
-            <div className="lg:col-span-3 border-l border-slate-800 p-4 space-y-5 bg-slate-950/40 overflow-y-auto text-xs">
-              <div className="flex items-center space-x-2 text-slate-300 font-semibold border-b border-slate-800/80 pb-2">
-                <Settings2 className="w-4 h-4 text-cyan-400" />
-                <span>Inference Parameters</span>
-              </div>
-
-              {/* System Prompt */}
-              <div>
-                <label className="text-[11px] font-medium text-slate-400 block mb-1.5">System Prompt</label>
-                <textarea
-                  rows={4}
-                  value={playgroundSystemPrompt}
-                  onChange={e => setPlaygroundSystemPrompt(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2 text-slate-300 focus:outline-none focus:border-cyan-500 text-[11px] leading-relaxed resize-none"
-                />
-              </div>
-
-              {/* Temperature Slider */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-medium text-slate-400">Temperature</label>
-                  <span className="font-mono text-cyan-400 text-xs font-bold">{playgroundTemperature.toFixed(2)}</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.0"
-                  max="1.0"
-                  step="0.05"
-                  value={playgroundTemperature}
-                  onChange={e => setPlaygroundTemperature(parseFloat(e.target.value))}
-                  className="w-full accent-cyan-500 cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] text-slate-500 mt-0.5">
-                  <span>Deterministic (0.0)</span>
-                  <span>Creative (1.0)</span>
-                </div>
-              </div>
-
-              {/* Max Tokens Slider */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-medium text-slate-400">Max Tokens</label>
-                  <span className="font-mono text-cyan-400 text-xs font-bold">{playgroundMaxTokens}</span>
-                </div>
-                <input
-                  type="range"
-                  min="100"
-                  max="4096"
-                  step="50"
-                  value={playgroundMaxTokens}
-                  onChange={e => setPlaygroundMaxTokens(parseInt(e.target.value))}
-                  className="w-full accent-cyan-500 cursor-pointer"
-                />
-              </div>
-
-              {/* Active Model Snapshot Details */}
-              <div className="p-3 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
-                <span className="text-[11px] font-semibold text-slate-300 block">Selected Endpoint</span>
-                <p className="font-mono text-cyan-300 text-[11px] break-all">{playgroundModelId}</p>
-                <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-400 space-y-1">
-                  <div>Provider: {playgroundModelId.split("/")[0]}</div>
-                  <div>Credentials: Managed in Keys & Quotas tab</div>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setActiveTab("keys")}
-                className="w-full py-2 text-center text-xs text-cyan-400 hover:text-cyan-300 bg-cyan-950/30 hover:bg-cyan-950/60 border border-cyan-500/30 rounded-lg transition"
-              >
-                Configure Provider Keys →
-              </button>
-            </div>
-          </div>
-        )}
+        {/* TAB 8: CONVERSATIONAL PLAYGROUND is rendered as full-screen dedicated studio above */}
 
         {/* TAB 9: PROVIDERS KNOWLEDGE BASE GUIDE */}
         {activeTab === "providers" && (

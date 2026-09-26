@@ -180,6 +180,15 @@ export interface SeoImageData {
   issues: Array<{ severity: string; category: string; message: string }>;
 }
 
+export interface SeoAiInsights {
+  brand_positioning?: string;
+  geo_readiness?: string;
+  llm_quotability_actions?: string[];
+  high_ctr_serp_title?: string;
+  high_ctr_meta_description?: string;
+  keyword_gaps?: string[];
+}
+
 export interface SeoAuditSession {
   id: string;
   url: string;
@@ -240,6 +249,7 @@ export interface SeoAuditSession {
       improvements: string[];
       baseline_timestamp?: string;
     };
+    ai_insights?: SeoAiInsights;
   };
   created_at: string;
   updated_at: string;

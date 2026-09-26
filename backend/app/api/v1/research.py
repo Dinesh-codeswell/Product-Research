@@ -108,14 +108,32 @@ async def run_research_pipeline(
         session.status = "RUNNING"
         await db.commit()
 
+        # Phase 0: AI Query Analysis & Tactical Keyword Planner
+        from app.engine.ai_planner import AIResearchPlanner
+        from app.core.ai_config import AIConfigManager
+        ai_planner = AIResearchPlanner()
+        active_ai_cfg = AIConfigManager.get_instance().get_config()
+
+        publish_event(session_id, "ai_planning", 5, f"AI Model ({active_ai_cfg.active_model_name}) analyzing intent and planning tactical keywords across {len(channels)} channels...", {
+            "model": active_ai_cfg.active_model_name,
+            "provider": active_ai_cfg.active_provider,
+            "action": "AI_QUERY_PLANNING"
+        })
+
+        search_plan = await ai_planner.plan_research_query(query, channels)
+        channel_queries = search_plan.get("channel_queries", {})
+        planned_subreddits = search_plan.get("recommended_subreddits", [])
+        combined_subreddits = list(set((subreddits or []) + planned_subreddits))
+
         try:
             if execution_mode == "browser" and browser_approved:
-                publish_event(session_id, "browser_agent_start", 10, f"Spawning Live Browser Agent across {len(channels)} channels...", {
+                publish_event(session_id, "browser_agent_start", 12, f"Spawning Live Browser Agent across {len(channels)} channels with AI keyword control...", {
                     "mode": "browser",
                     "channels": channels,
                     "action": "SPAWN_AGENT",
                     "channel": "system",
-                    "title": "Autonomous Browser Agent Starting"
+                    "title": "Autonomous Browser Agent Starting",
+                    "model": active_ai_cfg.active_model_name
                 })
                 from app.browser_agent.agent import LiveBrowserAgent
                 browser_agent = LiveBrowserAgent()
@@ -124,7 +142,9 @@ async def run_research_pipeline(
                     query=query,
                     channels=channels,
                     max_items=max_items,
-                    event_publisher=publish_event
+                    event_publisher=publish_event,
+                    planned_queries=channel_queries,
+                    subreddits=combined_subreddits
                 )
 
                 # Resilient Fallback: If browser engine yielded 0 items, run parallel multi-channel scrapers
@@ -137,16 +157,16 @@ async def run_research_pipeline(
                         "description": "Engaging direct syndication scrapers across all channels"
                     })
                     per_channel_limit = max(15, max_items // max(1, len(channels)))
-                    tasks = [scrape_channel(ch, query, per_channel_limit, subreddits) for ch in channels]
+                    tasks = [scrape_channel(ch, (channel_queries.get(ch) or [query])[0], per_channel_limit, combined_subreddits) for ch in channels]
                     results = await asyncio.gather(*tasks)
                     for ch_items in results:
                         all_raw_items.extend(ch_items)
             else:
-                publish_event(session_id, "start", 10, f"Dispatching parallel workers across {len(channels)} channels...")
+                publish_event(session_id, "start", 12, f"Dispatching parallel workers with AI-optimized keywords across {len(channels)} channels...")
 
                 # 1. Parallel Multi-Channel Ingestion (Focus Mode)
                 per_channel_limit = max(15, max_items // len(channels))
-                tasks = [scrape_channel(ch, query, per_channel_limit, subreddits) for ch in channels]
+                tasks = [scrape_channel(ch, (channel_queries.get(ch) or [query])[0], per_channel_limit, combined_subreddits) for ch in channels]
                 results = await asyncio.gather(*tasks)
 
                 all_raw_items = []
