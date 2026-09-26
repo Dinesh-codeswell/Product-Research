@@ -142,10 +142,25 @@ class SynthesisEngine:
             else:
                 model = cfg.active_model_id
 
+        # Resolve API key from provider store or active config
+        provider = cfg.active_provider.lower()
+        if not api_key:
+            api_key = AIConfigManager.get_instance().get_provider_key(provider)
+
         headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
+            "Content-Type": "application/json"
         }
+        
+        # Only attach Authorization header if key is present and provider requires auth
+        if api_key and api_key.strip():
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
+        elif not AIConfigManager.get_instance().is_keyless(provider) and not cfg.use_freellmapi_gateway:
+            raise RuntimeError(
+                f"Provider '{cfg.active_provider}' requires an API key. "
+                "Please configure your API key in the 'AI Models & Free Tier' -> 'Keys & Quotas' tab, "
+                "or switch to a keyless model (such as Kilo, Pollinations, OVH, or AI Horde)."
+            )
+
         if cfg.active_provider == "openrouter":
             headers["HTTP-Referer"] = "https://pulseradar.local"
             headers["X-Title"] = "PulseRadar Product Discovery"
