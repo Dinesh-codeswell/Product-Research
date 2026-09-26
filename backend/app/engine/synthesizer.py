@@ -128,22 +128,20 @@ class SynthesisEngine:
         from app.core.ai_config import AIConfigManager
         cfg = AIConfigManager.get_instance().get_config()
 
+        from app.engine.model_catalog import ModelCatalogEngine
+        provider = (cfg.active_provider or "groq").lower()
+
         # Determine target endpoint and authentication
         if cfg.use_freellmapi_gateway:
             base_url = cfg.freellmapi_gateway_url.rstrip("/")
             api_key = cfg.freellmapi_token or "freellmapi-local"
-            model = cfg.active_model_id.split("/")[-1] if "/" in cfg.active_model_id else cfg.active_model_id
+            model = ModelCatalogEngine.resolve_wire_model(cfg.active_model_id, provider)
         else:
             base_url = cfg.base_url.rstrip("/") if cfg.base_url else "https://api.openai.com/v1"
             api_key = cfg.api_key or getattr(settings, "OPENAI_API_KEY", "")
-            # Determine wire model id
-            if "/" in cfg.active_model_id and cfg.active_provider not in ["openrouter", "github"]:
-                model = cfg.active_model_id.split("/")[-1]
-            else:
-                model = cfg.active_model_id
+            model = ModelCatalogEngine.resolve_wire_model(cfg.active_model_id, provider)
 
         # Resolve API key from provider store or active config
-        provider = cfg.active_provider.lower()
         if not api_key:
             api_key = AIConfigManager.get_instance().get_provider_key(provider)
 
@@ -161,7 +159,7 @@ class SynthesisEngine:
                 "or switch to a keyless model (such as Kilo, Pollinations, OVH, or AI Horde)."
             )
 
-        if cfg.active_provider == "openrouter":
+        if provider == "openrouter":
             headers["HTTP-Referer"] = "https://pulseradar.local"
             headers["X-Title"] = "PulseRadar Product Discovery"
             
@@ -181,7 +179,14 @@ class SynthesisEngine:
             if resp.status_code != 200:
                 raise RuntimeError(f"Upstream provider returned status {resp.status_code}: {resp.text[:300]}")
             data = resp.json()
-            return data["choices"][0]["message"]["content"]
+            choices = data.get("choices", [])
+            if not choices:
+                raise RuntimeError(f"Upstream provider returned empty choices: {resp.text[:300]}")
+            msg = choices[0].get("message", {})
+            content = msg.get("content") or ""
+            if not content:
+                raise RuntimeError("Upstream provider returned an empty completion.")
+            return content
 
     async def _call_openai_summary(self, query: str, clusters: List[Dict[str, Any]], total_items: int) -> str:
         distilled = self._distill_clusters(clusters)

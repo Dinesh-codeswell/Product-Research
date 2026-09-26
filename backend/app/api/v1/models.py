@@ -209,6 +209,37 @@ async def toggle_provider(payload: ToggleProviderPayload):
         "platform": payload.platform,
         "enabled": payload.enabled
     }
+PROBE_MODELS: Dict[str, str] = {
+    "google": "google/gemini-flash-latest",
+    "openrouter": "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
+    "groq": "groq/llama-3.3-70b-versatile",
+    "cerebras": "cerebras/llama-3.3-70b",
+    "github": "github/openai/gpt-4o-mini",
+    "mistral": "mistral/codestral-latest",
+    "cohere": "cohere/command-r-plus-08-2024",
+    "zhipu": "zhipu/glm-4.5-flash",
+    "siliconflow": "siliconflow/deepseek-ai/DeepSeek-V3",
+    "pollinations": "pollinations/openai-fast",
+    "kilo": "kilo/free-chat-v1",
+    "ovh": "ovh/mistral-7b-instruct",
+    "aihorde": "aihorde/llama-3-70b-instruct",
+}
+
+def resolve_wire_model(model_id: str, platform: str) -> str:
+    """Extracts the exact upstream model ID that the wire protocol expects."""
+    if not model_id:
+        return ""
+    meta = ModelCatalogEngine.get_model_by_id(model_id)
+    if meta and meta.model_id:
+        upstream = meta.model_id
+        prefix = f"{platform.lower()}/"
+        if upstream.lower().startswith(prefix):
+            return upstream[len(prefix):]
+        return upstream
+    prefix = f"{platform.lower()}/"
+    if model_id.lower().startswith(prefix):
+        return model_id[len(prefix):]
+    return model_id
 
 @router.post("/keys/test", summary="Test Single Provider Credential Health")
 async def test_provider_health(payload: Dict[str, str] = Body(...)):
@@ -228,24 +259,29 @@ async def test_provider_health(payload: Dict[str, str] = Body(...)):
             "latency_ms": 0
         }
 
-    # Find a model for this platform
-    models = ModelCatalogEngine.filter_models(provider=platform, modality="chat")
-    if not models:
-        models = ModelCatalogEngine.filter_models(provider=platform)
+    # Find the best verified probe model for this platform
+    probe_id = PROBE_MODELS.get(platform)
+    target_meta = ModelCatalogEngine.get_model_by_id(probe_id) if probe_id else None
     
-    if not models:
+    if not target_meta:
+        models = ModelCatalogEngine.filter_models(provider=platform, modality="chat")
+        if not models:
+            models = ModelCatalogEngine.filter_models(provider=platform)
+        if models:
+            target_meta = ModelCatalogEngine.get_model_by_id(models[0]["id"])
+    
+    if not target_meta:
         return {
             "status": "healthy" if (api_key or is_keyless) else "needs_key",
             "message": "Key stored (no test endpoint available)",
             "latency_ms": 10
         }
 
-    target_model = models[0]
     test_result = await test_model_inference(TestModelPayload(
         prompt="Hi",
-        model_id=target_model["id"],
+        model_id=target_meta.id,
         provider=platform,
-        base_url=target_model["base_url"],
+        base_url=target_meta.base_url,
         api_key=api_key
     ))
     return test_result
@@ -280,8 +316,8 @@ async def test_model_inference(payload: TestModelPayload):
     model_id = payload.model_id or cfg.active_model_id
     base_url = payload.base_url or cfg.base_url
     
-    # Resolve API Key
-    api_key = payload.api_key or cfg_mgr.get_provider_key(provider) or cfg.api_key
+    # Resolve API Key: use explicitly provided key if specified (even if empty), else fallback to stored key
+    api_key = payload.api_key if payload.api_key is not None else (cfg_mgr.get_provider_key(provider) or cfg.api_key)
     
     # Check if provider is keyless
     is_keyless = cfg_mgr.is_keyless(provider)
@@ -308,8 +344,8 @@ async def test_model_inference(payload: TestModelPayload):
     base_url = base_url.rstrip("/")
     endpoint_url = f"{base_url}/chat/completions" if not base_url.endswith("/chat/completions") else base_url
 
-    # Strip platform prefix for wire call if needed
-    wire_model = model_id.split("/")[-1] if ("/" in model_id and provider not in ["openrouter", "github"]) else model_id
+    # Strip platform prefix accurately using catalog metadata
+    wire_model = resolve_wire_model(model_id, provider)
 
     headers = {
         "Content-Type": "application/json"
@@ -348,7 +384,12 @@ async def test_model_inference(payload: TestModelPayload):
                 }
 
             data = resp.json()
-            content = data["choices"][0]["message"]["content"]
+            choices = data.get("choices", [])
+            content = ""
+            if choices:
+                msg = choices[0].get("message", {})
+                content = msg.get("content", "") or ""
+
             usage = data.get("usage", {})
             tokens_used = usage.get("total_tokens", 150)
             
@@ -404,7 +445,7 @@ async def playground_chat(payload: ChatPayload):
         )
 
     endpoint_url = f"{base_url.rstrip('/')}/chat/completions"
-    wire_model = payload.model_id.split("/")[-1] if ("/" in payload.model_id and provider not in ["openrouter", "github"]) else payload.model_id
+    wire_model = resolve_wire_model(payload.model_id, provider)
 
     headers = {"Content-Type": "application/json"}
     if api_key and api_key.strip():
@@ -442,7 +483,13 @@ async def playground_chat(payload: ChatPayload):
                 )
 
             data = resp.json()
-            choice = data["choices"][0]
+            choices = data.get("choices", [])
+            msg_obj = {"role": "assistant", "content": ""}
+            if choices:
+                msg_obj = choices[0].get("message", msg_obj)
+                if not msg_obj.get("content"):
+                    msg_obj["content"] = "Model completed inference with empty response."
+
             usage = data.get("usage", {})
             tokens_used = usage.get("total_tokens", 250)
 
@@ -451,7 +498,7 @@ async def playground_chat(payload: ChatPayload):
 
             return {
                 "status": "success",
-                "message": choice["message"],
+                "message": msg_obj,
                 "model_id": payload.model_id,
                 "provider": provider,
                 "latency_ms": latency_ms,
