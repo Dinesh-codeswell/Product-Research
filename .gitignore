@@ -68,4 +68,6 @@ screenshots/
 Thumbs.db
 
 deploy_hf/
+freellmapi-main/
+ai_model_config.json
 

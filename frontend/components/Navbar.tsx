@@ -3,13 +3,14 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Radio, Github, Key, Plus, ExternalLink, Globe, Sparkles } from "lucide-react";
+import { Radio, Github, Key, Plus, ExternalLink, Globe, Sparkles, Cpu } from "lucide-react";
 import { ChannelSettingsModal } from "@/components/ChannelSettingsModal";
 
 export function Navbar() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const pathname = usePathname();
   const isSeo = pathname?.startsWith("/seo");
+  const isModels = pathname?.startsWith("/models");
 
   return (
     <>
@@ -35,7 +36,7 @@ export function Navbar() {
             <Link
               href="/"
               className={`px-3 py-1 rounded-[6px] text-xs font-mono transition-all ${
-                !isSeo
+                !isSeo && !isModels
                   ? "bg-[#292d30]/60 text-[#ffffff] font-medium"
                   : "text-[#a1a4a5] hover:text-[#ffffff]"
               }`}
@@ -54,7 +55,20 @@ export function Navbar() {
               <span>SEO & GEO Studio</span>
               <span className="h-1.5 w-1.5 rounded-full bg-[#3ad389]" />
             </Link>
+            <Link
+              href="/models"
+              className={`px-3 py-1 rounded-[6px] text-xs font-mono flex items-center gap-1.5 transition-all ${
+                isModels
+                  ? "bg-[#9281f7]/20 border border-[#9281f7]/40 text-[#ffffff] font-medium"
+                  : "text-[#a1a4a5] hover:text-[#ffffff]"
+              }`}
+            >
+              <Cpu className="h-3 w-3 text-[#9281f7]" />
+              <span>AI Models & Free Tier</span>
+              <span className="text-[10px] font-mono bg-[#3ad389]/20 text-[#3ad389] px-1 py-0.2 rounded border border-[#3ad389]/30">7.4B</span>
+            </Link>
           </nav>
+
 
           {/* Right Ghost Actions */}
           <div className="flex items-center gap-2.5">

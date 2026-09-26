@@ -9,11 +9,15 @@ logger = logging.getLogger(__name__)
 class SynthesisEngine:
     async def generate_executive_summary(self, query: str, clusters: List[Dict[str, Any]], total_items: int) -> str:
         """Generates high-level executive summary grounded in discovered clusters."""
-        if settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
+        from app.core.ai_config import AIConfigManager
+        cfg = AIConfigManager.get_instance().get_config()
+        has_provider = bool(cfg.api_key or getattr(settings, "OPENAI_API_KEY", "") or cfg.use_freellmapi_gateway or cfg.active_provider in ["kilo", "pollinations", "aihorde", "ovh", "custom"])
+
+        if has_provider:
             try:
                 return await self._call_openai_summary(query, clusters, total_items)
             except Exception as e:
-                logger.error(f"OpenAI summary failed: {e}. Falling back to structured synthesizer.")
+                logger.error(f"AI Model ({cfg.active_model_id}) summary generation failed: {e}. Falling back to structured synthesizer.")
 
         # Built-in structured synthesis
         top_cluster = clusters[0] if clusters else None
@@ -33,11 +37,16 @@ class SynthesisEngine:
 
     async def generate_prd(self, query: str, clusters: List[Dict[str, Any]], custom_instructions: Optional[str] = None) -> str:
         """Generates a complete, professional PRD based on discovered evidence."""
-        if settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
+        from app.core.ai_config import AIConfigManager
+        cfg = AIConfigManager.get_instance().get_config()
+        has_provider = bool(cfg.api_key or getattr(settings, "OPENAI_API_KEY", "") or cfg.use_freellmapi_gateway or cfg.active_provider in ["kilo", "pollinations", "aihorde", "ovh", "custom"])
+
+        if has_provider:
             try:
                 return await self._call_openai_prd(query, clusters, custom_instructions)
             except Exception as e:
-                logger.error(f"OpenAI PRD generation failed: {e}. Using structured PRD generator.")
+                logger.error(f"AI Model ({cfg.active_model_id}) PRD generation failed: {e}. Using structured PRD generator.")
+
 
         # Grounded rule-based PRD template incorporating real clusters and quotes
         prd_lines = [
@@ -115,6 +124,50 @@ class SynthesisEngine:
             })
         return distilled
 
+    async def _dispatch_llm_completion(self, prompt: str, temperature: float = 0.3) -> str:
+        from app.core.ai_config import AIConfigManager
+        cfg = AIConfigManager.get_instance().get_config()
+
+        # Determine target endpoint and authentication
+        if cfg.use_freellmapi_gateway:
+            base_url = cfg.freellmapi_gateway_url.rstrip("/")
+            api_key = cfg.freellmapi_token or "freellmapi-local"
+            model = cfg.active_model_id.split("/")[-1] if "/" in cfg.active_model_id else cfg.active_model_id
+        else:
+            base_url = cfg.base_url.rstrip("/") if cfg.base_url else "https://api.openai.com/v1"
+            api_key = cfg.api_key or getattr(settings, "OPENAI_API_KEY", "")
+            # Determine wire model id
+            if "/" in cfg.active_model_id and cfg.active_provider not in ["openrouter", "github"]:
+                model = cfg.active_model_id.split("/")[-1]
+            else:
+                model = cfg.active_model_id
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        if cfg.active_provider == "openrouter":
+            headers["HTTP-Referer"] = "https://pulseradar.local"
+            headers["X-Title"] = "PulseRadar Product Discovery"
+            
+        if cfg.custom_headers:
+            headers.update(cfg.custom_headers)
+
+        endpoint_url = f"{base_url}/chat/completions" if not base_url.endswith("/chat/completions") else base_url
+
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature
+        }
+
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(endpoint_url, headers=headers, json=payload)
+            if resp.status_code != 200:
+                raise RuntimeError(f"Upstream provider returned status {resp.status_code}: {resp.text[:300]}")
+            data = resp.json()
+            return data["choices"][0]["message"]["content"]
+
     async def _call_openai_summary(self, query: str, clusters: List[Dict[str, Any]], total_items: int) -> str:
         distilled = self._distill_clusters(clusters)
         prompt = (
@@ -123,18 +176,7 @@ class SynthesisEngine:
             f"Key Discovered Evidence Clusters:\n{distilled}\n\n"
             "Format in clean markdown with Strategic Takeaways, User Mental Models, and Priority Action Items."
         )
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                json={
-                    "model": settings.OPENAI_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.4
-                }
-            )
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        return await self._dispatch_llm_completion(prompt, temperature=0.4)
 
     async def _call_openai_prd(self, query: str, clusters: List[Dict[str, Any]], custom_instructions: Optional[str]) -> str:
         distilled = self._distill_clusters(clusters)
@@ -144,15 +186,5 @@ class SynthesisEngine:
             f"Custom strategic focus: {custom_instructions or 'None'}\n\n"
             "Include: Problem Statement, Personas, Functional Requirements (FR-1, FR-2), Gherkin User Stories (Given-When-Then), and OKRs."
         )
-        async with httpx.AsyncClient(timeout=45) as client:
-            resp = await client.post(
-                "https://api.openai.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
-                json={
-                    "model": settings.OPENAI_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3
-                }
-            )
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
+        return await self._dispatch_llm_completion(prompt, temperature=0.3)
+
