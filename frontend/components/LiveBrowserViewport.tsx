@@ -21,7 +21,8 @@ import {
   ThumbsUp,
   MessageSquare,
   Download,
-  Youtube
+  Youtube,
+  FileText
 } from "lucide-react";
 import { BrowserActionEvent, RawFeedback, InsightCluster } from "@/lib/types";
 import { getExportUrl } from "@/lib/api";
@@ -48,7 +49,12 @@ export function LiveBrowserViewport({
   const [selectedChannel, setSelectedChannel] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>("");
   const [imageError, setImageError] = useState(false);
-  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string; seek?: number } | null>(null);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{
+    url: string;
+    title?: string;
+    seek?: number;
+    mode?: "player" | "transcript";
+  } | null>(null);
 
   const latestEvent = events.length > 0 ? events[events.length - 1] : null;
 
@@ -447,20 +453,39 @@ export function LiveBrowserViewport({
                         ? Math.floor(metaSeek)
                         : 0;
                       return (
-                        <button
-                          onClick={() =>
-                            setSelectedTranscriptVideo({
-                              url: fb.url,
-                              title: fb.title || undefined,
-                              seek: seekSec,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-[11px] text-[#ff6465] transition-all"
-                          title="Open real-time transcript captured by the agent"
-                        >
-                          <Youtube className="h-3 w-3" />
-                          <span>Transcript</span>
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() =>
+                              setSelectedTranscriptVideo({
+                                url: fb.url,
+                                title: fb.title || undefined,
+                                seek: seekSec,
+                                mode: "transcript",
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] bg-[#9281f7]/15 border border-[#9281f7]/35 hover:bg-[#9281f7]/25 text-[11px] text-[#9281f7] transition-all"
+                            title="Open real-time transcript captured by the agent"
+                          >
+                            <FileText className="h-3 w-3" />
+                            <span>Transcript</span>
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              setSelectedTranscriptVideo({
+                                url: fb.url,
+                                title: fb.title || undefined,
+                                seek: seekSec,
+                                mode: "player",
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-[11px] text-[#ff6465] transition-all"
+                            title="Play video in-site"
+                          >
+                            <Play className="h-3 w-3 fill-current" />
+                            <span>Play In-Site</span>
+                          </button>
+                        </div>
                       );
                     })()}
 
@@ -499,13 +524,16 @@ export function LiveBrowserViewport({
         </div>
       )}
 
-      {/* Real-Time YouTube Transcript Modal (opened from agent-captured signals) */}
-      <YouTubeTranscriptModal
-        videoUrlOrId={selectedTranscriptVideo?.url || null}
-        videoTitle={selectedTranscriptVideo?.title}
-        initialSeekSeconds={selectedTranscriptVideo?.seek || 0}
-        onClose={() => setSelectedTranscriptVideo(null)}
-      />
+      {/* Real-Time YouTube Transcript Modal (only mounted when active) */}
+      {selectedTranscriptVideo && (
+        <YouTubeTranscriptModal
+          videoUrlOrId={selectedTranscriptVideo.url}
+          videoTitle={selectedTranscriptVideo.title}
+          initialSeekSeconds={selectedTranscriptVideo.seek || 0}
+          initialMode={selectedTranscriptVideo.mode || "player"}
+          onClose={() => setSelectedTranscriptVideo(null)}
+        />
+      )}
     </div>
   );
 }

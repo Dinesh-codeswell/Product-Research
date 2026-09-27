@@ -13,6 +13,7 @@ import {
   Github,
   Twitter,
   Play,
+  FileText,
   Users,
   Globe
 } from "lucide-react";
@@ -26,7 +27,12 @@ interface QuoteDrawerProps {
 
 export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string; seek?: number } | null>(null);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{
+    url: string;
+    title?: string;
+    seek?: number;
+    mode?: "player" | "transcript";
+  } | null>(null);
 
   if (!cluster) return null;
 
@@ -136,13 +142,30 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
                             setSelectedTranscriptVideo({
                               url: quote.permalink,
                               title: `Video Evidence: ${cluster.title}`,
-                              seek: seekSec
+                              seek: seekSec,
+                              mode: "transcript",
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#9281f7]/15 border border-[#9281f7]/35 hover:bg-[#9281f7]/25 text-xs font-mono text-[#9281f7] transition-all"
+                          title="Open full video transcript and dialogue cues"
+                        >
+                          <FileText className="h-3 w-3" />
+                          <span>Transcript</span>
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            setSelectedTranscriptVideo({
+                              url: quote.permalink,
+                              title: `Video Evidence: ${cluster.title}`,
+                              seek: seekSec,
+                              mode: "player",
                             })
                           }
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
-                          title="Watch video in-site with synced transcript cues"
+                          title="Play video in-site with synced cues"
                         >
-                          <Youtube className="h-3 w-3" />
+                          <Play className="h-3 w-3 fill-current" />
                           <span>Play In-Site</span>
                         </button>
 
@@ -156,21 +179,6 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
                           ) : (
                             <Copy className="h-3.5 w-3.5" />
                           )}
-                        </button>
-
-                        <button
-                          onClick={() =>
-                            setSelectedTranscriptVideo({
-                              url: quote.permalink,
-                              title: `Video Evidence: ${cluster.title}`,
-                              seek: seekSec
-                            })
-                          }
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
-                          title="Open embedded player inside the website"
-                        >
-                          <span>Watch</span>
-                          <ExternalLink className="h-3 w-3 text-[#ff6465]" />
                         </button>
                       </>
                     );
@@ -206,13 +214,16 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
         )}
       </div>
 
-      {/* YouTube Transcript Modal */}
-      <YouTubeTranscriptModal
-        videoUrlOrId={selectedTranscriptVideo?.url || null}
-        videoTitle={selectedTranscriptVideo?.title}
-        initialSeekSeconds={selectedTranscriptVideo?.seek || 0}
-        onClose={() => setSelectedTranscriptVideo(null)}
-      />
+      {/* YouTube Transcript Modal (only mounted when active) */}
+      {selectedTranscriptVideo && (
+        <YouTubeTranscriptModal
+          videoUrlOrId={selectedTranscriptVideo.url}
+          videoTitle={selectedTranscriptVideo.title}
+          initialSeekSeconds={selectedTranscriptVideo.seek || 0}
+          initialMode={selectedTranscriptVideo.mode || "player"}
+          onClose={() => setSelectedTranscriptVideo(null)}
+        />
+      )}
     </div>
   );
 }

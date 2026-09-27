@@ -28,6 +28,7 @@ interface YouTubeTranscriptModalProps {
   videoTitle?: string;
   initialTranscriptData?: YouTubeTranscriptData | null;
   initialSeekSeconds?: number;
+  initialMode?: "player" | "transcript";
   onClose: () => void;
 }
 
@@ -36,6 +37,7 @@ export function YouTubeTranscriptModal({
   videoTitle,
   initialTranscriptData,
   initialSeekSeconds = 0,
+  initialMode = "player",
   onClose,
 }: YouTubeTranscriptModalProps) {
   const [data, setData] = useState<YouTubeTranscriptData | null>(initialTranscriptData || null);
@@ -49,7 +51,7 @@ export function YouTubeTranscriptModal({
   const [activeTab, setActiveTab] = useState<"cues" | "full_text">("cues");
 
   // In-Website Video Player State
-  const [showPlayer, setShowPlayer] = useState<boolean>(true);
+  const [showPlayer, setShowPlayer] = useState<boolean>(initialMode !== "transcript");
   const [currentSeekTime, setCurrentSeekTime] = useState<number>(initialSeekSeconds);
   const [playerKey, setPlayerKey] = useState<number>(0);
   const [whisperKeyInput, setWhisperKeyInput] = useState<string>("");
@@ -100,6 +102,18 @@ export function YouTubeTranscriptModal({
     return m ? m[1] : "";
   }, [isBilibili, videoUrlOrId]);
 
+  // Video embed URL (MUST be computed unconditionally with all hooks)
+  const embedUrl = useMemo(() => {
+    if (isBilibili && bilibiliBvid) {
+      return `https://player.bilibili.com/player.html?bvid=${bilibiliBvid}&page=1&autoplay=1`;
+    }
+    if (videoId) {
+      const seekParam = currentSeekTime > 0 ? `&start=${currentSeekTime}` : "";
+      return `https://www.youtube.com/embed/${videoId}?autoplay=1&enablejsapi=1&rel=0${seekParam}`;
+    }
+    return "";
+  }, [isBilibili, bilibiliBvid, videoId, currentSeekTime]);
+
   // Initial Fetch
   useEffect(() => {
     if (!videoUrlOrId) return;
@@ -138,11 +152,6 @@ export function YouTubeTranscriptModal({
     const q = searchQuery.toLowerCase();
     return data.snippets.filter((s) => s.text.toLowerCase().includes(q));
   }, [data?.snippets, searchQuery]);
-
-  if (!videoUrlOrId) return null;
-
-  // Prevent hydration mismatch: don't render until client-side
-  if (!isClient) return null;
 
   // Handle Seeks in the In-Website Player (Zero External Tabs!)
   const handleSeek = (seconds: number) => {
@@ -198,14 +207,14 @@ ${data.text}
     if (!data) return;
     const title = videoTitle || data.video_title || `YouTube_Video_${data.video_id}`;
     let md = `# Video Transcript: ${title}\n\n`;
-    md += `- **Video URL:** ${data.video_url}\n`;
+    md += `- **Video URL:** ${data.video_url || ""}\n`;
     md += `- **Channel:** ${data.channel || "YouTube"}\n`;
-    md += `- **Duration:** ${data.stats.formatted_duration} (${data.stats.duration_seconds}s)\n`;
-    md += `- **Word Count:** ${data.stats.word_count} words\n`;
-    md += `- **Language:** ${data.language} (${data.is_transcribed ? "Whisper ASR" : data.is_generated ? "Auto-generated" : "Subtitles"})\n\n`;
+    md += `- **Duration:** ${data.stats?.formatted_duration || "00:00"} (${data.stats?.duration_seconds || 0}s)\n`;
+    md += `- **Word Count:** ${data.stats?.word_count || 0} words\n`;
+    md += `- **Language:** ${data.language || "en"} (${data.is_transcribed ? "Whisper ASR" : data.is_generated ? "Auto-generated" : "Subtitles"})\n\n`;
     md += `## Timestamped Transcript Cues\n\n`;
 
-    for (const cue of data.snippets) {
+    for (const cue of (data.snippets || [])) {
       md += `**[${cue.timestamp}]** ${cue.text}\n\n`;
     }
 
@@ -219,7 +228,7 @@ ${data.text}
   };
 
   const handleDownloadSrt = () => {
-    if (!data || !data.snippets.length) return;
+    if (!data || !data.snippets?.length) return;
     const title = videoTitle || data.video_title || `YouTube_Video_${data.video_id}`;
     const srt = buildSrtText();
 
@@ -234,7 +243,7 @@ ${data.text}
 
   // Build standards-compliant SRT payload (shared by download + clipboard copy)
   function buildSrtText(): string {
-    if (!data || !data.snippets.length) return "";
+    if (!data || !data.snippets?.length) return "";
 
     const formatTime = (ms: number) => {
       const h = Math.floor(ms / 3600000);
@@ -245,9 +254,9 @@ ${data.text}
     };
 
     let srt = "";
-    data.snippets.forEach((cue, index) => {
+    (data.snippets || []).forEach((cue, index) => {
       const startMs = Math.floor(cue.start * 1000);
-      const endMs = Math.floor((cue.start + cue.duration) * 1000);
+      const endMs = Math.floor((cue.start + (cue.duration || 5)) * 1000);
       srt += `${index + 1}\n`;
       srt += `${formatTime(startMs)} --> ${formatTime(endMs)}\n`;
       srt += `${cue.text}\n\n`;
@@ -263,16 +272,8 @@ ${data.text}
     setTimeout(() => setCopiedSrt(false), 2000);
   };
 
-  // Video embed URL
-  const embedUrl = useMemo(() => {
-    if (isBilibili && bilibiliBvid) {
-      return `//player.bilibili.com/player.html?bvid=${bilibiliBvid}&page=1&autoplay=1`;
-    }
-    if (videoId) {
-      return `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&enablejsapi=1&rel=0&start=${currentSeekTime}`;
-    }
-    return "";
-  }, [isBilibili, bilibiliBvid, videoId, currentSeekTime]);
+  // Safe client-side and existence guards AFTER all hooks have executed
+  if (!videoUrlOrId || !isClient) return null;
 
   return (
     <div className="fixed inset-0 z-50 bg-[#000000]/85 backdrop-blur-md flex items-center justify-center p-2 sm:p-4 md:p-6 animate-in fade-in duration-200">

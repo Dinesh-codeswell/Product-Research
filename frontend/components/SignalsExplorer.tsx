@@ -16,7 +16,9 @@ import {
   ChevronUp,
   Globe,
   Radio,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Play,
+  FileText
 } from "lucide-react";
 import { RawFeedback } from "@/lib/types";
 import { YouTubeTranscriptModal } from "./YouTubeTranscriptModal";
@@ -32,7 +34,12 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
   const [sortBy, setSortBy] = useState<"engagement" | "newest">("engagement");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string; seek?: number } | null>(null);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{
+    url: string;
+    title?: string;
+    seek?: number;
+    mode?: "player" | "transcript";
+  } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
@@ -314,19 +321,36 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
                         ? Math.floor(metaSeek)
                         : 0;
                       return (
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <button
                             onClick={() =>
                               setSelectedTranscriptVideo({
                                 url: item.url,
                                 title: item.title || undefined,
                                 seek: seekSec,
+                                mode: "transcript",
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#9281f7]/15 border border-[#9281f7]/35 hover:bg-[#9281f7]/25 text-xs font-mono text-[#9281f7] transition-all"
+                            title="Open dialogue cues and full video transcript"
+                          >
+                            <FileText className="h-3 w-3" />
+                            <span>Transcript</span>
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              setSelectedTranscriptVideo({
+                                url: item.url,
+                                title: item.title || undefined,
+                                seek: seekSec,
+                                mode: "player",
                               })
                             }
                             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
-                            title="Play in-site video with synced transcript & cues"
+                            title="Play in-site video player with synced dialogue cues"
                           >
-                            <Youtube className="h-3 w-3" />
+                            <Play className="h-3 w-3 fill-current" />
                             <span>Play In-Site</span>
                           </button>
 
@@ -340,21 +364,6 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
                             ) : (
                               <Copy className="h-3.5 w-3.5" />
                             )}
-                          </button>
-
-                          <button
-                            onClick={() =>
-                              setSelectedTranscriptVideo({
-                                url: item.url,
-                                title: item.title || undefined,
-                                seek: seekSec,
-                              })
-                            }
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
-                            title="Open embedded player inside the website"
-                          >
-                            <span>Watch</span>
-                            <ExternalLink className="h-3 w-3 text-[#ff6465]" />
                           </button>
                         </div>
                       );
@@ -458,13 +467,16 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
         </div>
       )}
 
-      {/* YouTube Transcript Modal */}
-      <YouTubeTranscriptModal
-        videoUrlOrId={selectedTranscriptVideo?.url || null}
-        videoTitle={selectedTranscriptVideo?.title}
-        initialSeekSeconds={selectedTranscriptVideo?.seek || 0}
-        onClose={() => setSelectedTranscriptVideo(null)}
-      />
+      {/* YouTube Transcript Modal (only mounted when active) */}
+      {selectedTranscriptVideo && (
+        <YouTubeTranscriptModal
+          videoUrlOrId={selectedTranscriptVideo.url}
+          videoTitle={selectedTranscriptVideo.title}
+          initialSeekSeconds={selectedTranscriptVideo.seek || 0}
+          initialMode={selectedTranscriptVideo.mode || "player"}
+          onClose={() => setSelectedTranscriptVideo(null)}
+        />
+      )}
     </div>
   );
 }

@@ -5,12 +5,19 @@ export function getBaseUrl(): string {
     const url = process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, "");
     return url.endsWith("/api/v1") ? url : `${url}/api/v1`;
   }
-  // In client browser, use relative path so Next.js rewrites proxy cleanly with zero CORS issues
+  // In client browser:
   if (typeof window !== "undefined") {
+    // If running on Vercel or any non-localhost host, use direct Render URL
+    if (
+      window.location.hostname.includes("vercel.app") ||
+      (window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1")
+    ) {
+      return "https://product-research-enpj.onrender.com/api/v1";
+    }
     return "/api/v1";
   }
-  // Server-side rendering
-  return "http://127.0.0.1:8000/api/v1";
+  // Server-side rendering default to production Render URL
+  return "https://product-research-enpj.onrender.com/api/v1";
 }
 
 export function getEventSourceUrl(sessionId: string): string {

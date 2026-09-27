@@ -96,9 +96,7 @@ export function QueryLauncher() {
 
   const toggleChannel = (channelId: string) => {
     if (channels.includes(channelId)) {
-      if (channels.length > 1) {
-        setChannels(channels.filter((c) => c !== channelId));
-      }
+      setChannels(channels.filter((c) => c !== channelId));
     } else {
       setChannels([...channels, channelId]);
     }
@@ -112,9 +110,22 @@ export function QueryLauncher() {
     setChannels(RECOMMENDED_CHANNELS);
   };
 
+  const clearAllChannels = () => {
+    setChannels([]);
+  };
+
+  const selectOnlyChannel = (channelId: string) => {
+    setChannels([channelId]);
+  };
+
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
+
+    if (channels.length === 0) {
+      setError("Please select at least one harvest source channel (e.g. YouTube, Reddit, Google) before launching research.");
+      return;
+    }
 
     if (executionMode === "browser") {
       setIsApprovalOpen(true);
@@ -124,6 +135,11 @@ export function QueryLauncher() {
   };
 
   const doLaunch = async (mode: "focus" | "browser", approved: boolean) => {
+    if (channels.length === 0) {
+      setError("Please select at least one harvest source channel before launching research.");
+      return;
+    }
+
     setIsApprovalOpen(false);
     setIsLoading(true);
     setError(null);
@@ -330,7 +346,7 @@ export function QueryLauncher() {
         {/* Channels Configuration & Category Filter */}
         <div className="space-y-4 pt-4 border-t border-[#292d30]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-mono uppercase tracking-wider text-[#a1a4a5]">
                 Harvest Sources ({channels.length}/{ALL_AVAILABLE_CHANNELS.length})
               </span>
@@ -350,6 +366,14 @@ export function QueryLauncher() {
               >
                 Recommended (7)
               </button>
+              <span className="text-[#6e727a]">•</span>
+              <button
+                type="button"
+                onClick={clearAllChannels}
+                className="text-[11px] font-mono text-[#ff9592] hover:underline"
+              >
+                Clear All
+              </button>
             </div>
 
             {/* Sample Size Dropdown */}
@@ -367,6 +391,39 @@ export function QueryLauncher() {
                 <option value={160}>160 Signals (Exhaustive)</option>
               </select>
             </div>
+          </div>
+
+          {/* Active Channels Chips & Visibility Bar */}
+          <div className="flex flex-wrap items-center gap-1.5 p-2 rounded-[8px] bg-[#121418] border border-[#20232a]">
+            <span className="text-[11px] font-mono text-[#6e727a] mr-1 flex items-center gap-1">
+              <span>Active Scope:</span>
+              <span className={`h-1.5 w-1.5 rounded-full ${channels.length > 0 ? "bg-[#3ad389]" : "bg-[#ff9592]"}`} />
+            </span>
+            {channels.length === 0 ? (
+              <span className="text-[11px] font-mono text-[#ff9592]">
+                No sources selected. Click a channel card below or use [Only] to target a single source.
+              </span>
+            ) : (
+              channels.map((cid) => {
+                const def = ALL_AVAILABLE_CHANNELS.find((c) => c.id === cid);
+                return (
+                  <span
+                    key={cid}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[4px] bg-[#1a1c23] border border-[#292d30] text-[11px] font-mono text-[#ffffff]"
+                  >
+                    <span>{def?.label || cid}</span>
+                    <button
+                      type="button"
+                      onClick={() => setChannels(channels.filter((c) => c !== cid))}
+                      className="text-[#6e727a] hover:text-[#ff9592] font-bold ml-0.5"
+                      title={`Remove ${def?.label || cid}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                );
+              })
+            )}
           </div>
 
           {/* Category Filter Pills */}
@@ -401,13 +458,12 @@ export function QueryLauncher() {
               const isSelected = channels.includes(ch.id);
 
               return (
-                <button
+                <div
                   key={ch.id}
-                  type="button"
                   onClick={() => toggleChannel(ch.id)}
-                  className={`flex flex-col justify-between p-2.5 rounded-[8px] border text-left transition-all ${
+                  className={`flex flex-col justify-between p-2.5 rounded-[8px] border text-left transition-all cursor-pointer ${
                     isSelected
-                      ? "bg-[#000000] border-[#ffffff] text-[#ffffff]"
+                      ? "bg-[#0e0e12] border-[#ffffff] text-[#ffffff] shadow-sm"
                       : "bg-[#000000] border-[#292d30] text-[#6e727a] hover:border-[#464a4d] hover:text-[#a1a4a5]"
                   }`}
                 >
@@ -418,11 +474,28 @@ export function QueryLauncher() {
                         {ch.label}
                       </span>
                     </div>
-                    <span
-                      className={`h-2 w-2 rounded-full shrink-0 ${
-                        isSelected ? "bg-[#3ad389]" : "bg-[#292d30]"
-                      }`}
-                    />
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selectOnlyChannel(ch.id);
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                          isSelected && channels.length === 1
+                            ? "bg-[#3ad389] text-[#000000] font-bold"
+                            : "bg-[#181a20] text-[#a1a4a5] hover:bg-[#ffffff] hover:text-[#000000]"
+                        }`}
+                        title={`Select ONLY ${ch.label} and deselect other sources`}
+                      >
+                        {isSelected && channels.length === 1 ? "Only" : "Only"}
+                      </button>
+                      <span
+                        className={`h-2 w-2 rounded-full shrink-0 ${
+                          isSelected ? "bg-[#3ad389]" : "bg-[#292d30]"
+                        }`}
+                      />
+                    </div>
                   </div>
 
                   <div className="flex items-center justify-between w-full text-[10px] font-mono text-[#6e727a]">
@@ -433,7 +506,7 @@ export function QueryLauncher() {
                       {ch.badge}
                     </span>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
