@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     LAYA_SERVICE_URL: str = "http://127.0.0.1:8080"
     LAYA_USE_LOCAL: bool = True
 
+    # Whisper ASR & Video Transcription Settings
+    GROQ_API_KEY: str = ""
+    WHISPER_PROVIDER: str = "auto"  # "groq", "openai", "auto"
+    WHISPER_MODEL: str = "whisper-large-v3"
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",

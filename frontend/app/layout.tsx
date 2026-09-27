@@ -14,7 +14,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark bg-[#000000]">
+    <html lang="en" className="dark bg-[#000000]" suppressHydrationWarning>
       <body className="min-h-screen bg-[#000000] text-[#f0f0f0] font-sans antialiased selection:bg-[#9281f7]/25 selection:text-white flex flex-col justify-between">
         <AppShell>{children}</AppShell>
       </body>

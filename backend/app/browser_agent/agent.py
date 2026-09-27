@@ -849,6 +849,9 @@ class LiveBrowserAgent:
 
             from app.engine.youtube_transcript import YouTubeTranscriptEngine, extract_video_id
 
+            # video_id -> metadata payload (title/desc/chapters) for videos without verbatim captions
+            discovered_meta: Dict[str, Dict[str, Any]] = {}
+
             for i, v in enumerate(yt_data[:limit]):
                 vid = extract_video_id(v["url"])
                 has_transcript = False
@@ -856,7 +859,16 @@ class LiveBrowserAgent:
                 if vid:
                     try:
                         t_res = YouTubeTranscriptEngine.get_transcript(vid)
-                        if t_res.get("success"):
+                        t_src = t_res.get("source", "youtube_subtitles")
+                        # Chapter/description cues are navigation, not spoken dialogue:
+                        # never expose them as verbatim evidence quotes.
+                        is_verbatim_payload = (
+                            t_res.get("success")
+                            and not t_res.get("is_chapters_only")
+                            and t_src not in ("video_chapters", "video_metadata")
+                            and len(t_res.get("snippets", [])) > 0
+                        )
+                        if is_verbatim_payload:
                             has_transcript = True
                             chunks = YouTubeTranscriptEngine.chunk_transcript_into_signals(
                                 t_res, min_words_per_chunk=35, max_words_per_chunk=75
@@ -889,6 +901,7 @@ class LiveBrowserAgent:
                                         "start_seconds": chk["start_seconds"],
                                         "timestamp": chk["formatted_time"],
                                         "has_transcript": True,
+                                        "is_verbatim": chk.get("is_verbatim", True),
                                         "language": t_res.get("language", "en"),
                                         "is_generated": t_res.get("is_generated", False),
                                         "full_transcript_preview": t_res.get("text", "")[:300] + "...",
@@ -898,19 +911,40 @@ class LiveBrowserAgent:
                                 ))
                                 if len(items) >= limit:
                                     break
+                        elif t_res.get("success"):
+                            # Chapters/metadata only: remember the real video metadata so the
+                            # discovery fallback below carries genuine context, not filler text.
+                            discovered_meta[vid] = t_res
                     except Exception as yt_err:
                         logger.debug(f"Browser agent transcript fetch note for {vid}: {yt_err}")
 
                 if not has_transcript and len(items) < limit:
+                    meta = discovered_meta.get(vid or "", {})
+                    desc = (meta.get("description") or "").strip()
+                    v_url = meta.get("video_url") or v["url"]
+                    content = f"{v['title']}\n\n{desc[:600]}".strip()
+                    if not desc:
+                        content = (
+                            f"{v['title']}\n\nDiscovered during a live product-research sweep of '{query}'. "
+                            f"Open the transcript viewer to extract verbatim spoken dialogue and timestamped cues."
+                        )
                     items.append(ChannelItem(
                         external_id=f"browser_yt_{hash(v['url'])}_{i}",
                         channel="youtube",
-                        url=v["url"],
+                        url=v_url,
                         title=v["title"],
-                        content=f"Video Review: {v['title']}\n\nTechnical analysis examining {query}: setup complexity, production stability, and developer ergonomics across real-world workloads.",
-                        author="YouTube Tech Reviewer",
+                        content=content,
+                        author=meta.get("channel") or "YouTube Tech Reviewer",
                         engagement_score=random.randint(450, 4200),
-                        raw_metadata={"video_id": vid or "", "source": "live_browser_agent", "has_transcript": False}
+                        raw_metadata={
+                            "video_id": vid or "",
+                            "video_url": v_url,
+                            "thumbnail": meta.get("thumbnail"),
+                            "source": meta.get("source", "live_browser_agent"),
+                            "has_transcript": False,
+                            "transcript_available": bool(meta.get("snippets")),
+                            "is_verbatim": False
+                        }
                     ))
 
         except Exception as e:

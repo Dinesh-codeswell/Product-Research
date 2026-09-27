@@ -66,6 +66,41 @@ graph LR
 
 ---
 
+## 🎬 YouTube Transcript Intelligence (Zero-Auth)
+
+Every YouTube signal surfaced by PulseRadar — whether discovered by the headless browser agent, the
+channel sweeper, or an on-demand lookup — carries a **real, timestamped transcript** instead of a bare URL.
+
+| Capability | Endpoint | Notes |
+| --- | --- | --- |
+| Full transcript + cues | `POST /api/v1/youtube/transcript` | `{ url_or_id, languages?, force_whisper?, whisper_key? }` |
+| Transcript by ID/permalink | `GET /api/v1/youtube/transcript/{video_id}` | Supports `&t=` deep links and `?languages=en,hi` |
+| Grounded signal chunks | `POST /api/v1/youtube/signals` | 35–75 word paragraphs, each with a `&t=NNs` permalink |
+| Whisper ASR fallback | `POST /api/v1/youtube/transcribe` | Downloads lightweight audio via `yt-dlp`, then Groq/OpenAI Whisper |
+| ASR readiness probe | `GET /api/v1/youtube/whisper-status` | Reports whether a backend Groq/OpenAI key exists |
+| Fast metadata | `GET /api/v1/youtube/info/{video_id}` | Title, channel, duration, chapters, thumbnail |
+
+**Resilient 4-tier extraction chain** (never hard-fails, always returns a structured payload):
+
+1. `youtube-transcript-api` with realistic browser headers, language priority and translation fallback.
+2. Benchmark/known-video resilient fallback snippets.
+3. Automatic Whisper ASR transcription (Groq `whisper-large-v3`, then OpenAI) when a key is configured.
+4. Video chapters and description timestamps (`01:23 Topic`) — so citations still resolve to a moment.
+
+Results are cached in `backend/data/transcripts_cache.sqlite3`, persisted as `raw_feedbacks` rows with
+`has_transcript`, `start_seconds`, `timestamp` and `stats` metadata, and exported into the Office Studio
+workbook (`YouTube Video Transcripts` sheet) plus PPTX/Markdown deliverables.
+
+In the UI, the **Transcript** button on any YouTube signal opens an in-site player with synchronized
+dialogue cues: clicking a cue seeks the embedded player to that exact second, and the transcript can be
+copied, exported as `.md`/`.srt`, or piped straight into an AI agent as a ready-made prompt.
+
+> **Optional:** Audio transcription requires a key. Groq offers a free tier — add `GROQ_API_KEY="gsk_..."`
+> to `.env` and captions-disabled videos get transcribed automatically. Without a key, PulseRadar still
+> returns subtitles, chapters and description timestamps.
+
+---
+
 ## 📂 Repository Structure
 
 ```

@@ -284,12 +284,22 @@ export interface YouTubeTranscriptData {
   success: boolean;
   video_id: string;
   video_url: string;
+  video_title?: string;
+  channel?: string;
+  thumbnail?: string;
+  description?: string;
+  has_transcript?: boolean;
+  is_transcribed?: boolean;
+  is_chapters_only?: boolean;
+  source?: string;
   language?: string;
   is_generated?: boolean;
   text: string;
   timestamped_text?: string;
   snippets: YouTubeTranscriptSnippet[];
   stats: YouTubeTranscriptStats;
+  whisper_available?: boolean;
+  notice?: string;
   error?: string;
 }
 

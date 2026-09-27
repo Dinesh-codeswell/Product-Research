@@ -20,10 +20,12 @@ import {
   Share2,
   ThumbsUp,
   MessageSquare,
-  Download
+  Download,
+  Youtube
 } from "lucide-react";
 import { BrowserActionEvent, RawFeedback, InsightCluster } from "@/lib/types";
 import { getExportUrl } from "@/lib/api";
+import { YouTubeTranscriptModal } from "./YouTubeTranscriptModal";
 
 interface LiveBrowserViewportProps {
   events: BrowserActionEvent[];
@@ -46,6 +48,7 @@ export function LiveBrowserViewport({
   const [selectedChannel, setSelectedChannel] = useState<string>("all");
   const [searchFilter, setSearchFilter] = useState<string>("");
   const [imageError, setImageError] = useState(false);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string; seek?: number } | null>(null);
 
   const latestEvent = events.length > 0 ? events[events.length - 1] : null;
 
@@ -432,15 +435,45 @@ export function LiveBrowserViewport({
                     {fb.url}
                   </span>
 
-                  <a
-                    href={fb.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-[#9281f7] hover:underline inline-flex items-center gap-1 text-[11px]"
-                  >
-                    <span>View Source</span>
-                    <ArrowRight className="h-3 w-3" />
-                  </a>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {(fb.channel.toLowerCase() === "youtube" ||
+                      fb.url.includes("youtube.com") ||
+                      fb.url.includes("youtu.be")) && (() => {
+                      const tMatch = fb.url.match(/[?&]t=(\d+)s?/);
+                      const metaSeek = Number((fb.raw_metadata as any)?.start_seconds ?? NaN);
+                      const seekSec = tMatch
+                        ? parseInt(tMatch[1], 10)
+                        : Number.isFinite(metaSeek)
+                        ? Math.floor(metaSeek)
+                        : 0;
+                      return (
+                        <button
+                          onClick={() =>
+                            setSelectedTranscriptVideo({
+                              url: fb.url,
+                              title: fb.title || undefined,
+                              seek: seekSec,
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-[11px] text-[#ff6465] transition-all"
+                          title="Open real-time transcript captured by the agent"
+                        >
+                          <Youtube className="h-3 w-3" />
+                          <span>Transcript</span>
+                        </button>
+                      );
+                    })()}
+
+                    <a
+                      href={fb.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#9281f7] hover:underline inline-flex items-center gap-1 text-[11px]"
+                    >
+                      <span>View Source</span>
+                      <ArrowRight className="h-3 w-3" />
+                    </a>
+                  </div>
                 </div>
               </div>
             ))}
@@ -465,6 +498,14 @@ export function LiveBrowserViewport({
           </button>
         </div>
       )}
+
+      {/* Real-Time YouTube Transcript Modal (opened from agent-captured signals) */}
+      <YouTubeTranscriptModal
+        videoUrlOrId={selectedTranscriptVideo?.url || null}
+        videoTitle={selectedTranscriptVideo?.title}
+        initialSeekSeconds={selectedTranscriptVideo?.seek || 0}
+        onClose={() => setSelectedTranscriptVideo(null)}
+      />
     </div>
   );
 }

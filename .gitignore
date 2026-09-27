@@ -72,3 +72,12 @@ freellmapi-main/
 youtube-transcript-api-master/
 ai_model_config.json
 
+# Vendored upstream reference repositories (cloned for engine parity studies only)
+YTSage-main/
+ytfetcher-main/
+
+# TypeScript incremental build cache & local type-check logs
+frontend/tsconfig.tsbuildinfo
+frontend/*.log
+
+

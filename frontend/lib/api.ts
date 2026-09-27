@@ -323,7 +323,9 @@ export async function deleteOfficeDocument(docId: string): Promise<{ status: str
 
 export async function fetchYouTubeTranscript(
   urlOrId: string,
-  languages?: string[]
+  languages?: string[],
+  forceWhisper?: boolean,
+  whisperKey?: string
 ): Promise<YouTubeTranscriptData> {
   const base = getBaseUrl();
   const res = await fetch(`${base}/youtube/transcript`, {
@@ -332,6 +334,8 @@ export async function fetchYouTubeTranscript(
     body: JSON.stringify({
       url_or_id: urlOrId,
       languages: languages || ["en", "en-US", "en-GB"],
+      force_whisper: forceWhisper || false,
+      whisper_key: whisperKey || undefined,
     }),
   });
   if (!res.ok) {
@@ -339,6 +343,56 @@ export async function fetchYouTubeTranscript(
     throw new Error(`Failed to fetch transcript: ${res.statusText} ${errorText}`);
   }
   return res.json();
+}
+
+export async function transcribeYouTubeAudio(
+  urlOrId: string,
+  apiKey?: string,
+  provider?: string
+): Promise<YouTubeTranscriptData> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/youtube/transcribe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url_or_id: urlOrId,
+      api_key: apiKey || undefined,
+      provider: provider || "auto",
+    }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Failed to transcribe audio: ${res.statusText} ${errorText}`);
+  }
+  return res.json();
+}
+
+export async function getYouTubeWhisperStatus(): Promise<{
+  groq_configured: boolean;
+  openai_configured: boolean;
+  whisper_ready: boolean;
+  default_provider: string;
+  model: string;
+}> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/youtube/whisper-status`, { cache: "no-store" });
+    if (!res.ok) return { groq_configured: false, openai_configured: false, whisper_ready: false, default_provider: "none", model: "whisper-large-v3" };
+    return res.json();
+  } catch {
+    return { groq_configured: false, openai_configured: false, whisper_ready: false, default_provider: "none", model: "whisper-large-v3" };
+  }
+}
+
+export async function getYouTubeVideoInfo(videoId: string): Promise<any> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/youtube/info/${videoId}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================

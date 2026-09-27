@@ -12,6 +12,7 @@ import {
   Terminal,
   Github,
   Twitter,
+  Play,
   Users,
   Globe
 } from "lucide-react";
@@ -25,7 +26,7 @@ interface QuoteDrawerProps {
 
 export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string } | null>(null);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string; seek?: number } | null>(null);
 
   if (!cluster) return null;
 
@@ -123,21 +124,26 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
                 <div className="pt-2 border-t border-[#292d30] flex items-center justify-end gap-2 text-xs font-mono">
                   {(quote.source_channel.toLowerCase() === "youtube" ||
                     quote.permalink.includes("youtube.com") ||
-                    quote.permalink.includes("youtu.be")) && (
-                    <button
-                      onClick={() =>
-                        setSelectedTranscriptVideo({
-                          url: quote.permalink,
-                          title: `Video Evidence: ${cluster.title}`,
-                        })
-                      }
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
-                      title="View full spoken transcript and cue timings"
-                    >
-                      <Youtube className="h-3 w-3" />
-                      <span>Transcript</span>
-                    </button>
-                  )}
+                    quote.permalink.includes("youtu.be")) && (() => {
+                    const tMatch = quote.permalink.match(/[?&]t=(\d+)s?/);
+                    const seekSec = tMatch ? parseInt(tMatch[1], 10) : 0;
+                    return (
+                      <button
+                        onClick={() =>
+                          setSelectedTranscriptVideo({
+                            url: quote.permalink,
+                            title: `Video Evidence: ${cluster.title}`,
+                            seek: seekSec
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
+                        title="View full spoken transcript and cue timings"
+                      >
+                        <Youtube className="h-3 w-3" />
+                        <span>Transcript</span>
+                      </button>
+                    );
+                  })()}
 
                   <button
                     onClick={() => handleCopy(quote)}
@@ -171,6 +177,7 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
       <YouTubeTranscriptModal
         videoUrlOrId={selectedTranscriptVideo?.url || null}
         videoTitle={selectedTranscriptVideo?.title}
+        initialSeekSeconds={selectedTranscriptVideo?.seek || 0}
         onClose={() => setSelectedTranscriptVideo(null)}
       />
     </div>
