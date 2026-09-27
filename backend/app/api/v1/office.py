@@ -15,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
@@ -77,11 +78,12 @@ class ExportCustomXlsxPayload(BaseModel):
 @router.get("/sources", summary="List connectable sessions from Research and SEO")
 async def list_available_sources(db: AsyncSession = Depends(get_db)):
     """Return recent completed research sessions and SEO audits that can be loaded into Office Studio."""
-    # Fetch recent Research sessions
+    # Fetch recent Research sessions with clusters eager loaded
     stmt_research = (
         select(ResearchSession)
+        .options(selectinload(ResearchSession.clusters))
         .order_by(desc(ResearchSession.created_at))
-        .limit(20)
+        .limit(30)
     )
     res_research = await db.execute(stmt_research)
     research_sessions = res_research.scalars().all()
@@ -90,7 +92,7 @@ async def list_available_sources(db: AsyncSession = Depends(get_db)):
     stmt_seo = (
         select(SeoAuditSession)
         .order_by(desc(SeoAuditSession.created_at))
-        .limit(20)
+        .limit(30)
     )
     res_seo = await db.execute(stmt_seo)
     seo_sessions = res_seo.scalars().all()
@@ -101,10 +103,17 @@ async def list_available_sources(db: AsyncSession = Depends(get_db)):
                 "id": s.id,
                 "title": s.query,
                 "type": "research",
+                "source_type": "research",
                 "status": s.status,
-                "items_count": s.total_items_scraped,
-                "execution_mode": s.execution_mode,
+                "clusters_count": len(s.clusters) if s.clusters else 0,
+                "signals_count": s.total_items_scraped or 0,
+                "items_count": s.total_items_scraped or 0,
+                "execution_mode": s.execution_mode or "focus",
                 "created_at": s.created_at.isoformat() if s.created_at else None,
+                "meta": {
+                    "clusters_count": len(s.clusters) if s.clusters else 0,
+                    "signals_count": s.total_items_scraped or 0,
+                }
             }
             for s in research_sessions
         ],
@@ -114,10 +123,15 @@ async def list_available_sources(db: AsyncSession = Depends(get_db)):
                 "title": f"{s.domain} ({s.audit_type})",
                 "url": s.url,
                 "type": "seo",
+                "source_type": "seo",
                 "status": s.status,
-                "overall_score": s.overall_score,
-                "geo_score": s.geo_readiness_score,
+                "overall_score": s.overall_score or 0,
+                "geo_score": s.geo_readiness_score or 0,
                 "created_at": s.created_at.isoformat() if s.created_at else None,
+                "meta": {
+                    "overall_score": s.overall_score or 0,
+                    "geo_score": s.geo_readiness_score or 0,
+                }
             }
             for s in seo_sessions
         ]
@@ -129,7 +143,14 @@ async def list_available_sources(db: AsyncSession = Depends(get_db)):
 @router.get("/connect/research/{session_id}", summary="Get research session pre-formatted for Univer Sheets and Docs")
 async def connect_research_session(session_id: str, db: AsyncSession = Depends(get_db)):
     """Transforms a Consumer Discovery research session into structured Univer Workbook and Document data."""
-    stmt = select(ResearchSession).where(ResearchSession.id == session_id)
+    stmt = (
+        select(ResearchSession)
+        .options(
+            selectinload(ResearchSession.clusters).selectinload(InsightCluster.quotes),
+            selectinload(ResearchSession.feedbacks)
+        )
+        .where(ResearchSession.id == session_id)
+    )
     res = await db.execute(stmt)
     session = res.scalar_one_or_none()
 
@@ -175,30 +196,30 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
     # Sheet 1: Executive Summary
     summary_cells = {
         "0": {
-            "0": {"v": "PULSERADAR CONSUMER RESEARCH DOSSIER", "s": {"b": 1, "fs": 14, "cl": {"rgb": "#9281F7"}}},
+            "0": {"v": "PULSERADAR CONSUMER RESEARCH DOSSIER", "s": {"bold": True, "color": "#9281f7"}},
         },
         "1": {
-            "0": {"v": "Research Query:", "s": {"b": 1}},
+            "0": {"v": "Research Query:", "s": {"bold": True}},
             "1": {"v": session.query}
         },
         "2": {
-            "0": {"v": "Execution Mode:", "s": {"b": 1}},
-            "1": {"v": session.execution_mode.upper()}
+            "0": {"v": "Execution Mode:", "s": {"bold": True}},
+            "1": {"v": (session.execution_mode or "focus").upper()}
         },
         "3": {
-            "0": {"v": "Total Items Analyzed:", "s": {"b": 1}},
+            "0": {"v": "Total Items Analyzed:", "s": {"bold": True}},
             "1": {"v": session.total_items_scraped}
         },
         "4": {
-            "0": {"v": "Insight Clusters Identified:", "s": {"b": 1}},
+            "0": {"v": "Insight Clusters Identified:", "s": {"bold": True}},
             "1": {"v": len(session.clusters)}
         },
         "5": {
-            "0": {"v": "Analysis Status:", "s": {"b": 1}},
+            "0": {"v": "Analysis Status:", "s": {"bold": True}},
             "1": {"v": session.status}
         },
         "7": {
-            "0": {"v": "EXECUTIVE SYNTHESIS", "s": {"b": 1, "fs": 12, "cl": {"rgb": "#3AD389"}}}
+            "0": {"v": "EXECUTIVE SYNTHESIS", "s": {"bold": True, "color": "#3ad389"}}
         },
         "8": {
             "0": {"v": session.executive_summary or "Inference and aggregation in progress."}
@@ -208,17 +229,17 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
     # Sheet 2: Insight Clusters
     cluster_cells = {
         "0": {
-            "0": {"v": "Cluster Title", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "1": {"v": "Category", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "2": {"v": "Severity (0-1)", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "3": {"v": "Evidence Count", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "4": {"v": "Keyword Tags", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "5": {"v": "Description & Opportunity", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
+            "0": {"v": "Cluster Title", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "1": {"v": "Category", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "2": {"v": "Severity (0-1)", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "3": {"v": "Evidence Count", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "4": {"v": "Keyword Tags", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "5": {"v": "Description & Opportunity", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
         }
     }
     for idx, c in enumerate(clusters_data, start=1):
         cluster_cells[str(idx)] = {
-            "0": {"v": c["title"], "s": {"b": 1}},
+            "0": {"v": c["title"], "s": {"bold": True}},
             "1": {"v": c["category"]},
             "2": {"v": round(c["severity_score"], 2)},
             "3": {"v": c["item_count"]},
@@ -229,12 +250,12 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
     # Sheet 3: Evidence Quotes
     quotes_cells = {
         "0": {
-            "0": {"v": "Cluster", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "1": {"v": "Channel", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "2": {"v": "Author", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "3": {"v": "Engagement", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "4": {"v": "Direct Evidence Quote", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "5": {"v": "Source URL", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
+            "0": {"v": "Cluster", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "1": {"v": "Channel", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "2": {"v": "Author", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "3": {"v": "Engagement", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "4": {"v": "Direct Evidence Quote", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "5": {"v": "Source URL", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
         }
     }
     row_counter = 1
@@ -303,11 +324,19 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
                 doc_markdown += f"> \"{q['quote_text']}\"\n> — *{q['source_author']} ({q['source_channel'].upper()})*\n\n"
 
     return {
+        "source_type": "research",
+        "source_id": session.id,
         "session_id": session.id,
         "query": session.query,
         "title": f"Research - {session.query}",
+        "summary": session.executive_summary or f"Research dossier for {session.query}",
         "workbook": workbook_snapshot,
         "document_markdown": doc_markdown,
+        "markdown": doc_markdown,
+        "document": {
+            "title": f"Research - {session.query}",
+            "markdown": doc_markdown
+        },
         "stats": {
             "total_items": session.total_items_scraped,
             "clusters_count": len(session.clusters),
@@ -338,19 +367,19 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
     # Sheet 1: Scorecard & Overview
     summary_cells = {
         "0": {
-            "0": {"v": "PULSERADAR SEO & GEO CITATION AUDIT", "s": {"b": 1, "fs": 14, "cl": {"rgb": "#9281F7"}}},
+            "0": {"v": "PULSERADAR SEO & GEO CITATION AUDIT", "s": {"bold": True, "color": "#9281f7"}},
         },
-        "1": {"0": {"v": "Audited Domain:", "s": {"b": 1}}, "1": {"v": session.domain}},
-        "2": {"0": {"v": "Full Target URL:", "s": {"b": 1}}, "1": {"v": session.url}},
-        "3": {"0": {"v": "Audit Type:", "s": {"b": 1}}, "1": {"v": session.audit_type.upper()}},
-        "4": {"0": {"v": "Audit Status:", "s": {"b": 1}}, "1": {"v": session.status}},
-        "6": {"0": {"v": "EXECUTIVE COMPOSITE SCORES", "s": {"b": 1, "fs": 12, "cl": {"rgb": "#3AD389"}}}},
-        "7": {"0": {"v": "Overall Health Score (0-100)", "s": {"b": 1}}, "1": {"v": session.overall_score}},
-        "8": {"0": {"v": "GEO AI Citation Readiness Score (0-100)", "s": {"b": 1}}, "1": {"v": session.geo_readiness_score}},
-        "9": {"0": {"v": "Technical SEO Crawl Score", "s": {"b": 1}}, "1": {"v": session.technical_score}},
-        "10": {"0": {"v": "On-Page & Schema Score", "s": {"b": 1}}, "1": {"v": session.onpage_score}},
-        "11": {"0": {"v": "Image SEO Optimization Score", "s": {"b": 1}}, "1": {"v": session.image_score}},
-        "13": {"0": {"v": "EXECUTIVE DOSSIER SUMMARY", "s": {"b": 1, "fs": 11}}},
+        "1": {"0": {"v": "Audited Domain:", "s": {"bold": True}}, "1": {"v": session.domain}},
+        "2": {"0": {"v": "Full Target URL:", "s": {"bold": True}}, "1": {"v": session.url}},
+        "3": {"0": {"v": "Audit Type:", "s": {"bold": True}}, "1": {"v": session.audit_type.upper()}},
+        "4": {"0": {"v": "Audit Status:", "s": {"bold": True}}, "1": {"v": session.status}},
+        "6": {"0": {"v": "EXECUTIVE COMPOSITE SCORES", "s": {"bold": True, "color": "#3ad389"}}},
+        "7": {"0": {"v": "Overall Health Score (0-100)", "s": {"bold": True}}, "1": {"v": session.overall_score}},
+        "8": {"0": {"v": "GEO AI Citation Readiness Score (0-100)", "s": {"bold": True}}, "1": {"v": session.geo_readiness_score}},
+        "9": {"0": {"v": "Technical SEO Crawl Score", "s": {"bold": True}}, "1": {"v": session.technical_score}},
+        "10": {"0": {"v": "On-Page & Schema Score", "s": {"bold": True}}, "1": {"v": session.onpage_score}},
+        "11": {"0": {"v": "Image SEO Optimization Score", "s": {"bold": True}}, "1": {"v": session.image_score}},
+        "13": {"0": {"v": "EXECUTIVE DOSSIER SUMMARY", "s": {"bold": True}}},
         "14": {"0": {"v": session.executive_summary or "Audit complete."}}
     }
 
@@ -358,11 +387,11 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
     geo_pillars = geo.get("pillars") or {}
     geo_cells = {
         "0": {
-            "0": {"v": "GEO Pillar", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "1": {"v": "Score", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "2": {"v": "Max", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "3": {"v": "Readiness %", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "4": {"v": "Key Signal Evaluation Notes", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
+            "0": {"v": "GEO Pillar", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "1": {"v": "Score", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "2": {"v": "Max", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "3": {"v": "Readiness %", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "4": {"v": "Key Signal Evaluation Notes", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
         }
     }
     r_idx = 1
@@ -371,7 +400,7 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
         for itm in p_data.get("items", []):
             notes.append(f"{itm.get('rule')}: {itm.get('status')} ({itm.get('notes', '')})")
         geo_cells[str(r_idx)] = {
-            "0": {"v": p_name.replace("_", " ").upper(), "s": {"b": 1}},
+            "0": {"v": p_name.replace("_", " ").upper(), "s": {"bold": True}},
             "1": {"v": p_data.get("score", 0)},
             "2": {"v": p_data.get("max", 25)},
             "3": {"v": f"{p_data.get('percentage', 0)}%"},
@@ -383,16 +412,16 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
     title_variants = meta.get("title_variants") or []
     meta_cells = {
         "0": {
-            "0": {"v": "Variant Type", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "1": {"v": "Suggested Title Tag", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "2": {"v": "Char Count", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "3": {"v": "Status", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "4": {"v": "CTR & Search Rationale", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
+            "0": {"v": "Variant Type", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "1": {"v": "Suggested Title Tag", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "2": {"v": "Char Count", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "3": {"v": "Status", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "4": {"v": "CTR & Search Rationale", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
         }
     }
     for idx, tv in enumerate(title_variants, start=1):
         meta_cells[str(idx)] = {
-            "0": {"v": tv.get("variant", ""), "s": {"b": 1}},
+            "0": {"v": tv.get("variant", ""), "s": {"bold": True}},
             "1": {"v": tv.get("title", "")},
             "2": {"v": tv.get("char_count", 0)},
             "3": {"v": tv.get("status", "OPTIMAL")},
@@ -403,18 +432,18 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
     top_kws = keywords.get("top_keywords") or []
     kw_cells = {
         "0": {
-            "0": {"v": "Keyword / Entity", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "1": {"v": "Frequency", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "2": {"v": "Density %", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "3": {"v": "Search Intent", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "4": {"v": "In H1", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "5": {"v": "In H2", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
-            "6": {"v": "Prominence", "s": {"b": 1, "bg": {"rgb": "#1E2029"}, "cl": {"rgb": "#FFFFFF"}}},
+            "0": {"v": "Keyword / Entity", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "1": {"v": "Frequency", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "2": {"v": "Density %", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "3": {"v": "Search Intent", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "4": {"v": "In H1", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "5": {"v": "In H2", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            "6": {"v": "Prominence", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
         }
     }
     for idx, k in enumerate(top_kws[:30], start=1):
         kw_cells[str(idx)] = {
-            "0": {"v": k.get("keyword", ""), "s": {"b": 1}},
+            "0": {"v": k.get("keyword", ""), "s": {"bold": True}},
             "1": {"v": k.get("frequency", 0)},
             "2": {"v": f"{k.get('density_percent', 0)}%"},
             "3": {"v": k.get("intent", "INFORMATIONAL")},
@@ -484,12 +513,20 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
 """
 
     return {
+        "source_type": "seo",
+        "source_id": session.id,
         "audit_id": session.id,
         "domain": session.domain,
         "url": session.url,
         "title": f"SEO - {session.domain}",
+        "summary": session.executive_summary or f"SEO & GEO Audit for {session.domain}",
         "workbook": workbook_snapshot,
         "document_markdown": doc_markdown,
+        "markdown": doc_markdown,
+        "document": {
+            "title": f"SEO - {session.domain}",
+            "markdown": doc_markdown
+        },
         "scores": {
             "overall": session.overall_score,
             "geo": session.geo_readiness_score,

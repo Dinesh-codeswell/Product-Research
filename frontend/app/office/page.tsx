@@ -39,7 +39,11 @@ import {
   SlidersHorizontal,
   ChevronRight,
   Printer,
-  Code
+  Code,
+  Play,
+  Globe,
+  Zap,
+  Activity,
 } from "lucide-react";
 import {
   listOfficeSources,
@@ -49,6 +53,8 @@ import {
   getOfficeDocument,
   saveOfficeDocument,
   deleteOfficeDocument,
+  startResearch,
+  startSeoAudit,
   OfficeSourceItem,
   OfficeSourcesResponse,
   OfficeConnectedData,
@@ -340,6 +346,12 @@ function OfficeStudioContent() {
   const [sourcesList, setSourcesList] = useState<OfficeSourcesResponse>({ research: [], seo: [] });
   const [savedDocsList, setSavedDocsList] = useState<OfficeSavedDocument[]>([]);
   const [isLoadingSources, setIsLoadingSources] = useState(false);
+  const [sourcesDrawerTab, setSourcesDrawerTab] = useState<"existing" | "new">("existing");
+  const [newSweepType, setNewSweepType] = useState<"research" | "seo">("research");
+  const [newSweepQuery, setNewSweepQuery] = useState("");
+  const [newSweepUrl, setNewSweepUrl] = useState("");
+  const [isLaunchingSweep, setIsLaunchingSweep] = useState(false);
+  const [sweepProgressMsg, setSweepProgressMsg] = useState("");
 
   const cellInputRef = useRef<HTMLInputElement>(null);
   const formulaBarRef = useRef<HTMLInputElement>(null);
@@ -442,8 +454,9 @@ function OfficeStudioContent() {
         setHistoryIndex(0);
       }
 
-      if (data.document?.markdown) {
-        setDocMarkdown(data.document.markdown);
+      const markdownContent = data.document?.markdown || data.document_markdown || data.markdown;
+      if (markdownContent) {
+        setDocMarkdown(markdownContent);
       }
 
       showToast(`Connected live data from ${type === "research" ? "Consumer Discovery" : "SEO Audit"}!`);
@@ -453,6 +466,60 @@ function OfficeStudioContent() {
       showToast(`Failed to connect source: ${err.message || err}`);
     } finally {
       setIsSyncing(false);
+    }
+  };
+
+  const handleLaunchSweep = async () => {
+    if (newSweepType === "research") {
+      if (!newSweepQuery.trim()) {
+        showToast("Please enter a research topic or search query.");
+        return;
+      }
+      try {
+        setIsLaunchingSweep(true);
+        setSweepProgressMsg("Launching autonomous discovery sweep across channels...");
+        const res = await startResearch({
+          query: newSweepQuery.trim(),
+          channels: ["reddit", "youtube", "trustpilot", "twitter"],
+          max_items: 30,
+        });
+        setSweepProgressMsg("Sweep initiated! Connecting real-time data to Office Studio...");
+        showToast("Discovery sweep initialized. Connecting data...");
+        await handleConnectSource("research", res.session_id);
+        setSourcesDrawerOpen(false);
+        setNewSweepQuery("");
+      } catch (err: any) {
+        console.error("Failed to launch research sweep:", err);
+        showToast(`Failed to launch sweep: ${err.message || err}`);
+      } finally {
+        setIsLaunchingSweep(false);
+        setSweepProgressMsg("");
+      }
+    } else {
+      if (!newSweepUrl.trim()) {
+        showToast("Please enter a target URL to audit.");
+        return;
+      }
+      try {
+        setIsLaunchingSweep(true);
+        setSweepProgressMsg("Launching comprehensive SEO & GEO audit...");
+        const cleanUrl = newSweepUrl.trim().startsWith("http") ? newSweepUrl.trim() : `https://${newSweepUrl.trim()}`;
+        const res = await startSeoAudit({
+          url: cleanUrl,
+          audit_type: "deep",
+        });
+        setSweepProgressMsg("Audit initiated! Connecting real-time data to Office Studio...");
+        showToast("SEO audit initialized. Connecting data...");
+        await handleConnectSource("seo", res.audit_id);
+        setSourcesDrawerOpen(false);
+        setNewSweepUrl("");
+      } catch (err: any) {
+        console.error("Failed to launch SEO audit:", err);
+        showToast(`Failed to launch audit: ${err.message || err}`);
+      } finally {
+        setIsLaunchingSweep(false);
+        setSweepProgressMsg("");
+      }
     }
   };
 
@@ -792,9 +859,9 @@ function OfficeStudioContent() {
   // Selected cell styling queries
   const activeCellData = activeSheet?.cellData?.[selectedCell.r]?.[selectedCell.c] ||
     activeSheet?.cellData?.[String(selectedCell.r)]?.[String(selectedCell.c)];
-  const isBold = !!activeCellData?.s?.bold;
-  const isItalic = !!activeCellData?.s?.italic;
-  const isUnderline = !!activeCellData?.s?.underline;
+  const isBold = !!(activeCellData?.s?.bold || (activeCellData?.s as any)?.b === 1 || (activeCellData?.s as any)?.b === true);
+  const isItalic = !!(activeCellData?.s?.italic || (activeCellData?.s as any)?.it === 1 || (activeCellData?.s as any)?.it === true);
+  const isUnderline = !!(activeCellData?.s?.underline || (activeCellData?.s as any)?.ul?.s);
   const currentAlign = activeCellData?.s?.align || "left";
 
   const totalSheetsCount = workbook.sheetOrder?.length || 1;
@@ -1267,17 +1334,23 @@ function OfficeStudioContent() {
                           displayStr.toLowerCase().includes(searchQuery.toLowerCase());
 
                         // Style properties
-                        const s = cell?.s || {};
+                        const s = (cell?.s || {}) as any;
+                        const isBoldCell = s.bold || s.b === 1 || s.b === true;
+                        const isItalicCell = s.italic || s.it === 1 || s.it === true;
+                        const isUnderlineCell = s.underline || !!s.ul?.s;
+                        const textColor = s.color || s.cl?.rgb || "#ffffff";
+                        const bgColor = matchesSearch
+                          ? "#ffca16"
+                          : isSelected
+                          ? "rgba(146, 129, 247, 0.12)"
+                          : s.bg || s.bg?.rgb || "transparent";
+
                         const cellStyle: React.CSSProperties = {
-                          fontWeight: s.bold ? "bold" : "normal",
-                          fontStyle: s.italic ? "italic" : "normal",
-                          textDecoration: s.underline ? "underline" : "none",
-                          color: s.color || "#ffffff",
-                          backgroundColor: matchesSearch
-                            ? "#ffca16"
-                            : isSelected
-                            ? "rgba(146, 129, 247, 0.12)"
-                            : s.bg || "transparent",
+                          fontWeight: isBoldCell ? "bold" : "normal",
+                          fontStyle: isItalicCell ? "italic" : "normal",
+                          textDecoration: isUnderlineCell ? "underline" : "none",
+                          color: textColor,
+                          backgroundColor: bgColor,
                           textAlign: s.align || "left",
                         };
 
@@ -1438,94 +1511,297 @@ function OfficeStudioContent() {
                   <Database className="h-4 w-4 text-[#9281f7]" />
                   <h3 className="font-serif text-lg font-normal text-[#ffffff]">Connect Live Data</h3>
                 </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={openSourcesDrawer}
+                    disabled={isLoadingSources}
+                    className="p-1.5 rounded hover:bg-[#1f2229] text-[#a1a4a5] hover:text-[#ffffff] transition-colors"
+                    title="Refresh sources"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoadingSources ? "animate-spin text-[#9281f7]" : ""}`} />
+                  </button>
+                  <button
+                    onClick={() => setSourcesDrawerOpen(false)}
+                    className="p-1 rounded text-[#a1a4a5] hover:text-[#ffffff]"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Sub-tabs: Existing Sessions vs Run New Sweep */}
+              <div className="flex items-center bg-[#181a20] p-0.5 rounded-[6px] border border-[#292d30]">
                 <button
-                  onClick={() => setSourcesDrawerOpen(false)}
-                  className="p-1 rounded text-[#a1a4a5] hover:text-[#ffffff]"
+                  onClick={() => setSourcesDrawerTab("existing")}
+                  className={`flex-1 py-1 text-xs font-mono font-medium rounded-[4px] transition-all ${
+                    sourcesDrawerTab === "existing"
+                      ? "bg-[#9281f7]/20 text-[#ffffff] border border-[#9281f7]/50"
+                      : "text-[#a1a4a5] hover:text-[#ffffff]"
+                  }`}
                 >
-                  <X className="h-4 w-4" />
+                  Existing Sessions
+                </button>
+                <button
+                  onClick={() => setSourcesDrawerTab("new")}
+                  className={`flex-1 py-1 text-xs font-mono font-medium rounded-[4px] transition-all flex items-center justify-center gap-1.5 ${
+                    sourcesDrawerTab === "new"
+                      ? "bg-[#3ad389]/20 text-[#ffffff] border border-[#3ad389]/50"
+                      : "text-[#a1a4a5] hover:text-[#ffffff]"
+                  }`}
+                >
+                  <Zap className="h-3 w-3 text-[#3ad389]" />
+                  <span>Launch Live Sweep</span>
                 </button>
               </div>
 
-              <p className="text-xs text-[#a1a4a5] leading-relaxed">
-                Connect real-time findings from your Consumer Discovery sweeps or SEO & GEO audits directly into your sheets and docs without copy-pasting.
-              </p>
+              {sourcesDrawerTab === "existing" ? (
+                <>
+                  <p className="text-xs text-[#a1a4a5] leading-relaxed">
+                    Select any completed Consumer Discovery sweep or SEO audit to immediately load its structured data into sheets and markdown dossiers.
+                  </p>
 
-              {isLoadingSources ? (
-                <div className="py-12 text-center text-xs font-mono text-[#a1a4a5]">
-                  <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-[#9281f7]" />
-                  Harvesting active project sources...
-                </div>
+                  {isLoadingSources ? (
+                    <div className="py-12 text-center text-xs font-mono text-[#a1a4a5]">
+                      <RefreshCw className="h-5 w-5 animate-spin mx-auto mb-2 text-[#9281f7]" />
+                      Harvesting active project sources...
+                    </div>
+                  ) : (
+                    <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
+                      {/* Research Sources */}
+                      <div>
+                        <div className="text-[11px] font-mono text-[#9281f7] uppercase font-bold tracking-wider mb-2 flex items-center justify-between">
+                          <span>Consumer Discovery Sweeps</span>
+                          <span className="text-[10px] text-[#6e727a] font-normal">({sourcesList.research?.length || 0})</span>
+                        </div>
+                        {sourcesList.research?.length === 0 ? (
+                          <div className="p-3 rounded bg-[#181a20] border border-[#292d30] text-xs text-[#6e727a]">
+                            No completed discovery sessions yet. Use the "Launch Live Sweep" tab to trigger one.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {sourcesList.research.map((s) => {
+                              const clustersCount = s.clusters_count ?? s.meta?.clusters_count ?? 0;
+                              const signalsCount = s.signals_count ?? s.items_count ?? s.meta?.signals_count ?? 0;
+                              return (
+                                <div
+                                  key={s.id}
+                                  onClick={() => handleConnectSource("research", s.id)}
+                                  className="p-3 rounded-[6px] bg-[#181a20] border border-[#292d30] hover:border-[#9281f7] cursor-pointer transition-all hover:bg-[#1f2229] group"
+                                >
+                                  <div className="flex items-center justify-between text-xs font-medium text-[#ffffff]">
+                                    <span className="truncate group-hover:text-[#9281f7] transition-colors">{s.title}</span>
+                                    <span className="text-[10px] font-mono text-[#3ad389] uppercase shrink-0 ml-2">
+                                      {s.status}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1.5 text-[11px] font-mono text-[#6e727a]">
+                                    <span className="text-[#a1a4a5] font-medium">{clustersCount} clusters</span>
+                                    <span>•</span>
+                                    <span className="text-[#a1a4a5] font-medium">{signalsCount} signals</span>
+                                    <span>•</span>
+                                    <span>{new Date(s.created_at).toLocaleDateString()}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* SEO Sources */}
+                      <div>
+                        <div className="text-[11px] font-mono text-[#3ad389] uppercase font-bold tracking-wider mb-2 flex items-center justify-between">
+                          <span>SEO & GEO Audits</span>
+                          <span className="text-[10px] text-[#6e727a] font-normal">({sourcesList.seo?.length || 0})</span>
+                        </div>
+                        {sourcesList.seo?.length === 0 ? (
+                          <div className="p-3 rounded bg-[#181a20] border border-[#292d30] text-xs text-[#6e727a]">
+                            No completed SEO audits yet. Use the "Launch Live Sweep" tab to trigger one.
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {sourcesList.seo.map((s) => {
+                              const overallScore = s.overall_score ?? s.meta?.overall_score ?? 0;
+                              const geoScore = s.geo_score ?? s.meta?.geo_score ?? 0;
+                              return (
+                                <div
+                                  key={s.id}
+                                  onClick={() => handleConnectSource("seo", s.id)}
+                                  className="p-3 rounded-[6px] bg-[#181a20] border border-[#292d30] hover:border-[#3ad389] cursor-pointer transition-all hover:bg-[#1f2229] group"
+                                >
+                                  <div className="flex items-center justify-between text-xs font-medium text-[#ffffff]">
+                                    <span className="truncate group-hover:text-[#3ad389] transition-colors">{s.title}</span>
+                                    <span className="text-[10px] font-mono text-[#3ad389] font-bold shrink-0 ml-2">
+                                      {overallScore}/100
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1.5 text-[11px] font-mono text-[#6e727a]">
+                                    <span>GEO Score: {geoScore}/100</span>
+                                    <span>•</span>
+                                    <span>{new Date(s.created_at).toLocaleDateString()}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="space-y-4 max-h-[calc(100vh-220px)] overflow-y-auto pr-1">
-                  {/* Research Sources */}
-                  <div>
-                    <div className="text-[11px] font-mono text-[#9281f7] uppercase font-bold tracking-wider mb-2">
-                      Consumer Discovery Sweeps
-                    </div>
-                    {sourcesList.research?.length === 0 ? (
-                      <div className="p-3 rounded bg-[#181a20] border border-[#292d30] text-xs text-[#6e727a]">
-                        No completed discovery sessions yet. Run a sweep from Launchpad.
+                /* Launch Live Sweep & Connect Tab */
+                <div className="space-y-4 max-h-[calc(100vh-260px)] overflow-y-auto pr-1">
+                  <p className="text-xs text-[#a1a4a5] leading-relaxed">
+                    Trigger a live scraping sweep or SEO crawler directly from Office Studio. The generated insights will connect automatically into your spreadsheet and dossier.
+                  </p>
+
+                  {/* Sweep Type Selector */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setNewSweepType("research")}
+                      className={`p-2.5 rounded-[6px] border text-left transition-all ${
+                        newSweepType === "research"
+                          ? "bg-[#9281f7]/15 border-[#9281f7] text-[#ffffff]"
+                          : "bg-[#181a20] border-[#292d30] text-[#a1a4a5] hover:text-[#ffffff]"
+                      }`}
+                    >
+                      <div className="text-xs font-mono font-medium flex items-center gap-1.5">
+                        <Activity className="h-3.5 w-3.5 text-[#9281f7]" />
+                        <span>Consumer Sweep</span>
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {sourcesList.research.map((s) => (
-                          <div
-                            key={s.id}
-                            onClick={() => handleConnectSource("research", s.id)}
-                            className="p-3 rounded-[6px] bg-[#181a20] border border-[#292d30] hover:border-[#9281f7] cursor-pointer transition-all hover:bg-[#1f2229]"
-                          >
-                            <div className="flex items-center justify-between text-xs font-medium text-[#ffffff]">
-                              <span className="truncate">{s.title}</span>
-                              <span className="text-[10px] font-mono text-[#3ad389] uppercase">
-                                {s.status}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1.5 text-[11px] font-mono text-[#6e727a]">
-                              <span>{s.meta?.clusters_count || 0} clusters</span>
-                              <span>•</span>
-                              <span>{s.meta?.signals_count || 0} signals</span>
-                              <span>•</span>
-                              <span>{new Date(s.created_at).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                        ))}
+                      <div className="text-[10px] text-[#6e727a] mt-1 font-mono">
+                        Reddit, YouTube, Trustpilot
                       </div>
-                    )}
+                    </button>
+
+                    <button
+                      onClick={() => setNewSweepType("seo")}
+                      className={`p-2.5 rounded-[6px] border text-left transition-all ${
+                        newSweepType === "seo"
+                          ? "bg-[#3ad389]/15 border-[#3ad389] text-[#ffffff]"
+                          : "bg-[#181a20] border-[#292d30] text-[#a1a4a5] hover:text-[#ffffff]"
+                      }`}
+                    >
+                      <div className="text-xs font-mono font-medium flex items-center gap-1.5">
+                        <Globe className="h-3.5 w-3.5 text-[#3ad389]" />
+                        <span>SEO & GEO Audit</span>
+                      </div>
+                      <div className="text-[10px] text-[#6e727a] mt-1 font-mono">
+                        Technical, AI Citations
+                      </div>
+                    </button>
                   </div>
 
-                  {/* SEO Sources */}
-                  <div>
-                    <div className="text-[11px] font-mono text-[#3ad389] uppercase font-bold tracking-wider mb-2">
-                      SEO & GEO Audits
+                  {newSweepType === "research" ? (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#a1a4a5] mb-1.5">
+                          Product Topic or Discovery Query:
+                        </label>
+                        <input
+                          type="text"
+                          value={newSweepQuery}
+                          onChange={(e) => setNewSweepQuery(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && !isLaunchingSweep && handleLaunchSweep()}
+                          placeholder="e.g. Ergonomic wireless mechanical keyboard"
+                          className="w-full bg-[#181a20] border border-[#292d30] focus:border-[#9281f7] text-xs font-sans text-[#ffffff] px-3 py-2 rounded-[6px] outline-none"
+                        />
+                      </div>
+
+                      <div className="bg-[#181a20] border border-[#292d30] p-2.5 rounded-[6px] text-[11px] font-mono text-[#6e727a] space-y-1.5">
+                        <div className="text-[#a1a4a5] font-medium">Scraped Channels:</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="px-2 py-0.5 rounded bg-[#9281f7]/15 text-[#9281f7] border border-[#9281f7]/30 text-[10px]">
+                            Reddit (Discussions & Pain Points)
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-[#9281f7]/15 text-[#9281f7] border border-[#9281f7]/30 text-[10px]">
+                            YouTube (User Feedback)
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-[#9281f7]/15 text-[#9281f7] border border-[#9281f7]/30 text-[10px]">
+                            Trustpilot (Real Reviews)
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-[#9281f7]/15 text-[#9281f7] border border-[#9281f7]/30 text-[10px]">
+                            Twitter/X (Trends)
+                          </span>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={handleLaunchSweep}
+                        disabled={isLaunchingSweep || !newSweepQuery.trim()}
+                        className="w-full py-2.5 rounded-[6px] bg-[#9281f7] hover:bg-[#806ff5] text-xs font-mono font-medium text-[#ffffff] disabled:opacity-40 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#9281f7]/20"
+                      >
+                        {isLaunchingSweep ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            <span>Launching Discovery Sweep...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-3.5 w-3.5 fill-current" />
+                            <span>Run Sweep & Auto-Connect</span>
+                          </>
+                        )}
+                      </button>
                     </div>
-                    {sourcesList.seo?.length === 0 ? (
-                      <div className="p-3 rounded bg-[#181a20] border border-[#292d30] text-xs text-[#6e727a]">
-                        No completed SEO audits yet. Run an audit from SEO Studio.
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-[11px] font-mono text-[#a1a4a5] mb-1.5">
+                          Target Website or Domain URL:
+                        </label>
+                        <input
+                          type="text"
+                          value={newSweepUrl}
+                          onChange={(e) => setNewSweepUrl(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && !isLaunchingSweep && handleLaunchSweep()}
+                          placeholder="e.g. https://linear.app or stripe.com"
+                          className="w-full bg-[#181a20] border border-[#292d30] focus:border-[#3ad389] text-xs font-sans text-[#ffffff] px-3 py-2 rounded-[6px] outline-none"
+                        />
                       </div>
-                    ) : (
-                      <div className="space-y-2">
-                        {sourcesList.seo.map((s) => (
-                          <div
-                            key={s.id}
-                            onClick={() => handleConnectSource("seo", s.id)}
-                            className="p-3 rounded-[6px] bg-[#181a20] border border-[#292d30] hover:border-[#3ad389] cursor-pointer transition-all hover:bg-[#1f2229]"
-                          >
-                            <div className="flex items-center justify-between text-xs font-medium text-[#ffffff]">
-                              <span className="truncate">{s.title}</span>
-                              <span className="text-[10px] font-mono text-[#3ad389] font-bold">
-                                {s.meta?.overall_score || 0}/100
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1.5 text-[11px] font-mono text-[#6e727a]">
-                              <span>GEO Score: {s.meta?.geo_score || 0}</span>
-                              <span>•</span>
-                              <span>{new Date(s.created_at).toLocaleDateString()}</span>
-                            </div>
-                          </div>
-                        ))}
+
+                      <div className="bg-[#181a20] border border-[#292d30] p-2.5 rounded-[6px] text-[11px] font-mono text-[#6e727a] space-y-1.5">
+                        <div className="text-[#a1a4a5] font-medium">Audit Dimensions:</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span className="px-2 py-0.5 rounded bg-[#3ad389]/15 text-[#3ad389] border border-[#3ad389]/30 text-[10px]">
+                            Technical SEO & CWV
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-[#3ad389]/15 text-[#3ad389] border border-[#3ad389]/30 text-[10px]">
+                            GEO & LLM Engine Visibility
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-[#3ad389]/15 text-[#3ad389] border border-[#3ad389]/30 text-[10px]">
+                            Keyword Clustering & Intent
+                          </span>
+                        </div>
                       </div>
-                    )}
-                  </div>
+
+                      <button
+                        onClick={handleLaunchSweep}
+                        disabled={isLaunchingSweep || !newSweepUrl.trim()}
+                        className="w-full py-2.5 rounded-[6px] bg-[#3ad389] hover:bg-[#32be7b] text-xs font-mono font-medium text-[#121418] disabled:opacity-40 transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#3ad389]/20 font-bold"
+                      >
+                        {isLaunchingSweep ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 animate-spin text-[#121418]" />
+                            <span>Launching Audit...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-3.5 w-3.5 fill-current" />
+                            <span>Run Audit & Auto-Connect</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
+                  {sweepProgressMsg && (
+                    <div className="p-3 rounded-[6px] bg-[#1f2229] border border-[#9281f7]/40 text-xs font-mono text-[#9281f7] flex items-center gap-2 animate-pulse">
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin shrink-0" />
+                      <span>{sweepProgressMsg}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1533,7 +1809,7 @@ function OfficeStudioContent() {
             <div className="pt-4 border-t border-[#292d30]">
               <button
                 onClick={() => setSourcesDrawerOpen(false)}
-                className="w-full py-2 rounded-[6px] bg-[#181a20] border border-[#292d30] text-xs font-sans text-[#a1a4a5] hover:text-[#ffffff]"
+                className="w-full py-2 rounded-[6px] bg-[#181a20] border border-[#292d30] text-xs font-sans text-[#a1a4a5] hover:text-[#ffffff] transition-colors"
               >
                 Close Drawer
               </button>

@@ -167,6 +167,11 @@ export interface OfficeSourceItem {
   source_type: "research" | "seo";
   created_at: string;
   status: string;
+  clusters_count?: number;
+  signals_count?: number;
+  items_count?: number;
+  overall_score?: number | null;
+  geo_score?: number | null;
   meta: Record<string, any>;
 }
 
@@ -181,10 +186,12 @@ export interface OfficeConnectedData {
   title: string;
   summary: string;
   workbook: any;
-  document: {
+  document?: {
     title: string;
     markdown: string;
   };
+  document_markdown?: string;
+  markdown?: string;
 }
 
 export interface OfficeSavedDocument {
