@@ -51,13 +51,15 @@ export function YouTubeTranscriptModal({
   // In-Website Video Player State
   const [showPlayer, setShowPlayer] = useState<boolean>(true);
   const [currentSeekTime, setCurrentSeekTime] = useState<number>(initialSeekSeconds);
-  const [playerKey, setPlayerKey] = useState<number>(0); // Increment to reload iframe with new seek
+  const [playerKey, setPlayerKey] = useState<number>(0);
   const [whisperKeyInput, setWhisperKeyInput] = useState<string>("");
   const [showKeyPrompt, setShowKeyPrompt] = useState<boolean>(false);
   const [whisperStatus, setWhisperStatus] = useState<{ groq_configured: boolean; openai_configured: boolean; whisper_ready: boolean } | null>(null);
+  const [isClient, setIsClient] = useState(false);
 
-  // Load saved Groq key from localStorage if present
+  // Load saved Groq key from localStorage if present (client-side only)
   useEffect(() => {
+    setIsClient(true);
     if (typeof window !== "undefined") {
       const saved = localStorage.getItem("pulseradar_groq_key");
       if (saved) setWhisperKeyInput(saved);
@@ -138,6 +140,9 @@ export function YouTubeTranscriptModal({
   }, [data?.snippets, searchQuery]);
 
   if (!videoUrlOrId) return null;
+
+  // Prevent hydration mismatch: don't render until client-side
+  if (!isClient) return null;
 
   // Handle Seeks in the In-Website Player (Zero External Tabs!)
   const handleSeek = (seconds: number) => {

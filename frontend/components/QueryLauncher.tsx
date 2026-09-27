@@ -77,6 +77,10 @@ export function QueryLauncher() {
   const [executionMode, setExecutionMode] = useState<"focus" | "browser">("focus");
   const [channelFilter, setChannelFilter] = useState<string>("all");
   
+  // Detect if running on Vercel (where browser agent is not supported)
+  const isVercel = typeof window !== "undefined" && 
+    (process.env.NEXT_PUBLIC_VERCEL === "1" || window.location.hostname.includes("vercel.app"));
+  
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -226,15 +230,23 @@ export function QueryLauncher() {
               </button>
               <button
                 type="button"
-                onClick={() => setExecutionMode("browser")}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-xs font-sans font-medium transition-all ${
-                  executionMode === "browser"
+                onClick={() => {
+                  if (isVercel) return;
+                  setExecutionMode("browser");
+                }}
+                disabled={isVercel}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-xs font-sans font-medium transition-all opacity-50 ${ 
+                  isVercel
+                    ? "cursor-not-allowed text-[#464a4d]"
+                    : executionMode === "browser"
                     ? "bg-[#ffffff] text-[#000000] shadow-sm"
                     : "text-[#a1a4a5] hover:text-[#ffffff]"
                 }`}
+                title={isVercel ? "Live Browser Agent requires a local browser (not available on Vercel)" : ""}
               >
                 <Monitor className="h-3.5 w-3.5" />
                 <span>Live Browser Stream</span>
+                {isVercel && <HelpCircle className="h-3 w-3 opacity-50" />}
               </button>
             </div>
           </div>

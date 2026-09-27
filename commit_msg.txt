@@ -1,0 +1,5 @@
+fix: resolve hydration error #310 and disable browser agent on Vercel  
+  
+- YouTubeTranscriptModal: add isClient state to prevent hydration mismatch from localStorage access  
+- QueryLauncher: detect Vercel deployment and disable Live Browser Stream option with tooltip  
+- Browser agent requires local Chromium (not available on Vercel serverless)  
