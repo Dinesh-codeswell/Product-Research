@@ -316,8 +316,15 @@ export function QueryLauncher() {
             {/* Primary Action Button */}
             <button
               type="submit"
-              disabled={isLoading || !query.trim()}
-              className="px-6 py-3.5 rounded-[6px] bg-[#3b9eff] hover:bg-[#3b9eff]/90 text-[#ffffff] font-sans font-medium text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+              disabled={isLoading || !query.trim() || channels.length === 0}
+              className={`px-6 py-3.5 rounded-[6px] font-sans font-medium text-sm flex items-center justify-center gap-2 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
+                channels.length === 0
+                  ? "bg-[#292d30] text-[#a1a4a5]"
+                  : channels.length === 1 && channels[0] === "youtube"
+                  ? "bg-[#ff6465] hover:bg-[#ff6465]/90 text-[#ffffff] shadow-md shadow-[#ff6465]/20"
+                  : "bg-[#3b9eff] hover:bg-[#3b9eff]/90 text-[#ffffff]"
+              }`}
+              title={channels.length === 0 ? "Please select at least 1 harvest source" : `Harvest from: ${channels.join(", ")}`}
             >
               {isLoading ? (
                 <>
@@ -327,7 +334,13 @@ export function QueryLauncher() {
               ) : (
                 <>
                   <span>
-                    {executionMode === "browser" ? "Launch Browser Agent" : "Begin Sweep"}
+                    {channels.length === 0
+                      ? "Select Channel to Sweep"
+                      : executionMode === "browser"
+                      ? `Launch Browser Agent (${channels.length} ${channels.length === 1 ? "Channel" : "Channels"})`
+                      : channels.length === 1
+                      ? `Sweep 1 Channel: ${ALL_AVAILABLE_CHANNELS.find((c) => c.id === channels[0])?.label || channels[0]}`
+                      : `Begin Sweep (${channels.length} Channels)`}
                   </span>
                   <ArrowRight className="h-4 w-4" />
                 </>
@@ -369,6 +382,19 @@ export function QueryLauncher() {
               <span className="text-[#6e727a]">•</span>
               <button
                 type="button"
+                onClick={() => setChannels(["youtube"])}
+                className={`text-[11px] font-mono px-2 py-0.5 rounded border transition-colors ${
+                  channels.length === 1 && channels[0] === "youtube"
+                    ? "bg-[#ff6465]/20 border-[#ff6465]/40 text-[#ff6465] font-bold"
+                    : "border-[#292d30] text-[#a1a4a5] hover:text-[#ff6465] hover:border-[#ff6465]/40"
+                }`}
+                title="Target ONLY YouTube Transcripts"
+              >
+                YouTube Only
+              </button>
+              <span className="text-[#6e727a]">•</span>
+              <button
+                type="button"
                 onClick={clearAllChannels}
                 className="text-[11px] font-mono text-[#ff9592] hover:underline"
               >
@@ -401,7 +427,7 @@ export function QueryLauncher() {
             </span>
             {channels.length === 0 ? (
               <span className="text-[11px] font-mono text-[#ff9592]">
-                No sources selected. Click a channel card below or use [Only] to target a single source.
+                No sources selected. Click a channel card below or use [ONLY] to target a single source.
               </span>
             ) : (
               channels.map((cid) => {
@@ -426,29 +452,45 @@ export function QueryLauncher() {
             )}
           </div>
 
-          {/* Category Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-            {[
-              { id: "all", label: "All Sources" },
-              { id: "dev", label: "Developer & Code" },
-              { id: "social", label: "Social & Forums" },
-              { id: "video", label: "Video Reviews" },
-              { id: "web", label: "Web & Search" },
-              { id: "biz_fin", label: "B2B & Finance" },
-            ].map((tab) => (
+          {/* Category Filter Pills & Scope Helper */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#20232a] pb-2">
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {[
+                { id: "all", label: "All Sources" },
+                { id: "dev", label: "Developer & Code" },
+                { id: "social", label: "Social & Forums" },
+                { id: "video", label: "Video Reviews" },
+                { id: "web", label: "Web & Search" },
+                { id: "biz_fin", label: "B2B & Finance" },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setChannelFilter(tab.id)}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-mono transition-colors whitespace-nowrap ${
+                    channelFilter === tab.id
+                      ? "bg-[#292d30] text-[#ffffff] font-medium"
+                      : "text-[#6e727a] hover:text-[#a1a4a5]"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {channelFilter !== "all" && (
               <button
-                key={tab.id}
                 type="button"
-                onClick={() => setChannelFilter(tab.id)}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-mono transition-colors whitespace-nowrap ${
-                  channelFilter === tab.id
-                    ? "bg-[#292d30] text-[#ffffff] font-medium"
-                    : "text-[#6e727a] hover:text-[#a1a4a5]"
-                }`}
+                onClick={() => {
+                  const catChannelIds = ALL_AVAILABLE_CHANNELS.filter(c => c.category === channelFilter).map(c => c.id);
+                  setChannels(catChannelIds);
+                }}
+                className="self-start sm:self-auto px-2.5 py-1 rounded-[6px] bg-[#9281f7]/15 border border-[#9281f7]/35 hover:bg-[#9281f7]/25 text-[11px] font-mono text-[#9281f7] transition-all flex items-center gap-1 shrink-0"
+                title={`Scope active sweep to only the ${displayedChannels.length} channels in this category`}
               >
-                {tab.label}
+                <span>Select Only {channelFilter === "video" ? "Video Reviews (YouTube & Bilibili)" : `${displayedChannels.length} Category Channels`}</span>
               </button>
-            ))}
+            )}
           </div>
 
           {/* 13 Channel Grid */}
@@ -481,14 +523,14 @@ export function QueryLauncher() {
                           e.stopPropagation();
                           selectOnlyChannel(ch.id);
                         }}
-                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-colors ${
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-mono transition-all font-semibold ${
                           isSelected && channels.length === 1
-                            ? "bg-[#3ad389] text-[#000000] font-bold"
-                            : "bg-[#181a20] text-[#a1a4a5] hover:bg-[#ffffff] hover:text-[#000000]"
+                            ? "bg-[#3ad389] text-[#000000] ring-1 ring-[#3ad389]"
+                            : "bg-[#181a20] border border-[#292d30] text-[#a1a4a5] hover:bg-[#ffffff] hover:text-[#000000]"
                         }`}
-                        title={`Select ONLY ${ch.label} and deselect other sources`}
+                        title={`Scope research to ONLY ${ch.label} (deselects all other channels)`}
                       >
-                        {isSelected && channels.length === 1 ? "Only" : "Only"}
+                        {isSelected && channels.length === 1 ? "✓ ONLY" : "ONLY"}
                       </button>
                       <span
                         className={`h-2 w-2 rounded-full shrink-0 ${

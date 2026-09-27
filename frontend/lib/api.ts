@@ -1,4 +1,4 @@
-import { ResearchSession, StartResearchPayload, YouTubeTranscriptData, UniverSlideData, DoctorReport } from "./types";
+import { ResearchSession, StartResearchPayload, YouTubeTranscriptData, YouTubeDownloadFormatsResponse, UniverSlideData, DoctorReport } from "./types";
 
 export function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -400,6 +400,43 @@ export async function getYouTubeVideoInfo(videoId: string): Promise<any> {
   } catch {
     return null;
   }
+}
+
+export async function fetchYouTubeFormats(urlOrId: string): Promise<YouTubeDownloadFormatsResponse> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/youtube/formats?url=${encodeURIComponent(urlOrId)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch formats: ${res.statusText} ${errorText}`);
+  }
+  return res.json();
+}
+
+export function getYouTubeDownloadUrl(params: {
+  url: string;
+  type: "video" | "audio" | "subtitle";
+  quality?: string;
+  audio_format?: string;
+  audio_bitrate?: string;
+  format_id?: string;
+  sub_lang?: string;
+  sub_format?: string;
+  normalize?: boolean;
+}): string {
+  const base = getBaseUrl();
+  const searchParams = new URLSearchParams();
+  searchParams.set("url", params.url);
+  searchParams.set("type", params.type);
+  if (params.quality) searchParams.set("quality", params.quality);
+  if (params.audio_format) searchParams.set("audio_format", params.audio_format);
+  if (params.audio_bitrate) searchParams.set("audio_bitrate", params.audio_bitrate);
+  if (params.format_id) searchParams.set("format_id", params.format_id);
+  if (params.sub_lang) searchParams.set("sub_lang", params.sub_lang);
+  if (params.sub_format) searchParams.set("sub_format", params.sub_format);
+  if (params.normalize) searchParams.set("normalize", "true");
+  return `${base}/youtube/download?${searchParams.toString()}`;
 }
 
 // ============================================================================

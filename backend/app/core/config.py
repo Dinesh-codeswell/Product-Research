@@ -58,8 +58,10 @@ class Settings(BaseSettings):
 
     # Whisper ASR & Video Transcription Settings
     GROQ_API_KEY: str = ""
-    WHISPER_PROVIDER: str = "auto"  # "groq", "openai", "auto"
+    WHISPER_PROVIDER: str = "auto"  # "groq", "openai", "gemini", "auto"
     WHISPER_MODEL: str = "whisper-large-v3"
+    GEMINI_API_KEY: str = ""
+    GOOGLE_API_KEY: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

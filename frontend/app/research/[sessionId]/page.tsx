@@ -50,6 +50,7 @@ export default function ResearchSessionPage() {
   };
 
   useEffect(() => {
+    if (!sessionId) return;
     fetchSession();
 
     // Setup SSE listener for live progress and browser actions

@@ -69,6 +69,50 @@ def get_realistic_headers() -> Dict[str, str]:
     }
 
 
+def resolve_transcription_keys() -> Dict[str, str]:
+    """Resolves available ASR/LLM transcription keys across settings, env, and ai_model_config.json."""
+    groq_key = getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
+    openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+    google_key = (
+        getattr(settings, "GOOGLE_API_KEY", "")
+        or getattr(settings, "GEMINI_API_KEY", "")
+        or os.getenv("GOOGLE_API_KEY", "")
+        or os.getenv("GEMINI_API_KEY", "")
+    )
+
+    # Fallback to backend/ai_model_config.json
+    try:
+        candidate_paths = [
+            Path("ai_model_config.json"),
+            Path("backend/ai_model_config.json"),
+            Path(__file__).parent.parent.parent / "ai_model_config.json",
+        ]
+        for cp in candidate_paths:
+            if cp.exists():
+                with open(cp, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                    p_keys = cfg.get("provider_keys", {})
+                    if not google_key:
+                        google_key = (
+                            p_keys.get("google")
+                            or p_keys.get("gemini")
+                            or (cfg.get("api_key") if cfg.get("active_provider") == "google" else "")
+                        )
+                    if not groq_key:
+                        groq_key = p_keys.get("groq", "")
+                    if not openai_key:
+                        openai_key = p_keys.get("openai", "")
+                break
+    except Exception as e:
+        logger.debug(f"Could not load keys from ai_model_config.json: {e}")
+
+    return {
+        "groq": groq_key or "",
+        "openai": openai_key or "",
+        "google": google_key or "",
+    }
+
+
 # ============================================================================
 # Persistent SQLite Cache (Inspired by ytfetcher SQLiteCache)
 # ============================================================================
@@ -460,20 +504,20 @@ class YouTubeTranscriptEngine:
                 is_generated = False
                 source = "benchmark_fallback"
 
-        # Tier 3: Auto-Whisper Fallback (if GROQ_API_KEY or OPENAI_API_KEY is configured)
-        groq_key = whisper_key or getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
-        openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+        # Tier 3: Auto AI Speech-to-Text Fallback (Gemini Multimodal Flash or Whisper ASR)
+        ai_keys = resolve_transcription_keys()
+        has_ai_key = bool(ai_keys.get("google") or ai_keys.get("groq") or ai_keys.get("openai"))
 
-        if not raw_snippets and (groq_key or openai_key):
-            logger.info(f"YouTube captions unavailable for {video_id}. Triggering Whisper ASR fallback...")
-            whisper_res = cls.transcribe_audio_with_whisper(
+        if not raw_snippets and has_ai_key:
+            logger.info(f"YouTube captions unavailable for {video_id}. Triggering AI Speech-to-Text fallback...")
+            ai_res = cls.transcribe_audio_with_whisper(
                 video_id_or_url=video_id,
-                api_key=groq_key or openai_key,
-                provider="groq" if groq_key else "openai"
+                api_key=whisper_key,
+                provider="auto"
             )
-            if whisper_res.get("success") and whisper_res.get("snippets"):
-                set_cached_transcript(video_id, whisper_res)
-                return whisper_res
+            if ai_res.get("success") and ai_res.get("snippets"):
+                set_cached_transcript(video_id, ai_res)
+                return ai_res
 
         # Tier 4: Video Chapters & Description Timestamps Fallback (from YTSage)
         chapter_snippets = []
@@ -633,13 +677,72 @@ class YouTubeTranscriptEngine:
         return metadata_payload
 
     @classmethod
+    def _transcribe_audio_with_gemini(cls, audio_path: Path, api_key: str) -> Tuple[List[Dict[str, Any]], str]:
+        """Transcribes audio using Google Gemini multimodal audio API (gemini-3.5-flash-lite / gemini-flash-latest).
+        Returns (snippets, full_text).
+        """
+        import base64
+        with open(audio_path, "rb") as f:
+            b64_audio = base64.b64encode(f.read()).decode("utf-8")
+
+        prompt = (
+            "Transcribe this audio recording accurately and verbatim. "
+            "Return a valid JSON array of objects representing dialogue cues with exact timestamps. "
+            "Each object must have these 3 keys:\n"
+            "- 'start': float (start time in seconds)\n"
+            "- 'duration': float (duration of the spoken snippet in seconds)\n"
+            "- 'text': string (the spoken verbatim text)\n"
+            "Return ONLY the JSON array, with no other conversational markdown or explanation."
+        )
+
+        body = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": "audio/m4a", "data": b64_audio}}
+                ]
+            }],
+            "generationConfig": {
+                "response_mime_type": "application/json"
+            }
+        }
+
+        models_to_try = ["gemini-3.5-flash-lite", "gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash"]
+        last_error = ""
+
+        for model_name in models_to_try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+            try:
+                resp = requests.post(url, json=body, timeout=60)
+                if resp.status_code == 200:
+                    resp_json = resp.json()
+                    candidates = resp_json.get("candidates", [])
+                    if candidates:
+                        raw_text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "").strip()
+                        if raw_text.startswith("```"):
+                            raw_text = re.sub(r"^```(?:json)?\s*", "", raw_text)
+                            raw_text = re.sub(r"\s*```$", "", raw_text)
+                        parsed = json.loads(raw_text)
+                        if isinstance(parsed, list):
+                            full_text = " ".join(item.get("text", "").strip() for item in parsed if item.get("text"))
+                            return parsed, full_text
+                else:
+                    last_error = f"Gemini {model_name} HTTP {resp.status_code}: {resp.text[:200]}"
+                    logger.debug(last_error)
+            except Exception as e:
+                last_error = str(e)
+                logger.debug(f"Gemini {model_name} exception: {e}")
+
+        raise RuntimeError(f"Gemini transcription failed across candidate models: {last_error}")
+
+    @classmethod
     def transcribe_audio_with_whisper(
         cls,
         video_id_or_url: str,
         api_key: Optional[str] = None,
         provider: str = "auto"
     ) -> Dict[str, Any]:
-        """Downloads audio stream via yt-dlp and transcribes using Groq Whisper or OpenAI Whisper."""
+        """Downloads audio stream via yt-dlp and transcribes using Gemini Multimodal Flash, Groq Whisper, or OpenAI Whisper."""
         video_id = extract_video_id(video_id_or_url)
         if not video_id:
             return {
@@ -656,22 +759,41 @@ class YouTubeTranscriptEngine:
         video_title = video_info.get("title", f"Video {video_id}")
         channel = video_info.get("channel", "YouTube")
 
-        # Resolve API Key & Provider
-        groq_key = api_key or getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
-        openai_key = getattr(settings, "OPENAI_API_KEY", "") or os.getenv("OPENAI_API_KEY", "")
+        # Resolve API Key & Provider across environment, settings, and ai_model_config.json
+        ai_keys = resolve_transcription_keys()
+        groq_key = ai_keys.get("groq", "")
+        openai_key = ai_keys.get("openai", "")
+        google_key = ai_keys.get("google", "")
 
         selected_provider = provider
-        if selected_provider == "auto":
-            selected_provider = "groq" if groq_key else ("openai" if openai_key else "groq")
+        if api_key:
+            if api_key.startswith("gsk_"):
+                selected_provider = "groq"
+                groq_key = api_key
+            elif api_key.startswith("sk-"):
+                selected_provider = "openai"
+                openai_key = api_key
+            else:
+                selected_provider = "gemini"
+                google_key = api_key
+        elif selected_provider == "auto":
+            if google_key:
+                selected_provider = "gemini"
+            elif groq_key:
+                selected_provider = "groq"
+            elif openai_key:
+                selected_provider = "openai"
+            else:
+                selected_provider = "gemini"
 
-        active_key = groq_key if selected_provider == "groq" else openai_key
+        active_key = google_key if selected_provider == "gemini" else (groq_key if selected_provider == "groq" else openai_key)
         if not active_key:
             return {
                 "success": False,
                 "video_id": video_id,
                 "video_url": video_url,
                 "video_title": video_title,
-                "error": "No Whisper API key configured. Provide a free Groq API key or OpenAI key to transcribe audio.",
+                "error": "No Speech-to-Text API key configured. Provide a Groq, OpenAI, or Google key to transcribe audio.",
                 "whisper_available": False,
                 "snippets": [],
                 "text": ""
@@ -686,7 +808,7 @@ class YouTubeTranscriptEngine:
                 ydl_opts = {
                     "format": "ba[ext=m4a]/ba/b",
                     "outtmpl": str(audio_path),
-                    "max_filesize": 25 * 1024 * 1024,  # Whisper limit 25MB
+                    "max_filesize": 25 * 1024 * 1024,  # Whisper/Gemini limit 25MB
                     "quiet": True,
                     "no_warnings": True,
                 }
@@ -708,7 +830,70 @@ class YouTubeTranscriptEngine:
                 file_size_mb = audio_file.stat().st_size / (1024 * 1024)
                 logger.info(f"Downloaded audio file {audio_file.name} ({file_size_mb:.2f} MB)")
 
-                # Step 2: Post to Whisper API
+                # Step 2: Post to Gemini Multimodal Audio or Whisper API
+                if selected_provider == "gemini":
+                    parsed_cues, full_text = cls._transcribe_audio_with_gemini(audio_file, active_key)
+                    formatted_snippets = []
+                    timestamped_lines = []
+                    total_duration = 0.0
+
+                    for item in parsed_cues:
+                        txt = clean_transcript_text(item.get("text", ""))
+                        if not txt:
+                            continue
+                        start_sec = float(item.get("start", 0.0))
+                        dur_sec = float(item.get("duration", 2.0))
+                        ts_str = format_seconds_to_timestamp(start_sec)
+
+                        formatted_snippets.append({
+                            "text": txt,
+                            "start": round(start_sec, 2),
+                            "duration": round(dur_sec, 2),
+                            "timestamp": ts_str,
+                            "permalink": f"https://www.youtube.com/watch?v={video_id}&t={int(start_sec)}s"
+                        })
+                        timestamped_lines.append(f"[{ts_str}] {txt}")
+                        if start_sec + dur_sec > total_duration:
+                            total_duration = start_sec + dur_sec
+
+                    if not formatted_snippets and full_text:
+                        formatted_snippets.append({
+                            "text": full_text,
+                            "start": 0.0,
+                            "duration": float(video_info.get("duration", 60)),
+                            "timestamp": "00:00",
+                            "permalink": f"https://www.youtube.com/watch?v={video_id}&t=0s"
+                        })
+                        timestamped_lines.append(f"[00:00] {full_text}")
+                        total_duration = float(video_info.get("duration", 60))
+
+                    payload = {
+                        "success": True,
+                        "has_transcript": True,
+                        "is_transcribed": True,
+                        "source": "gemini_multimodal_asr",
+                        "video_id": video_id,
+                        "video_url": video_url,
+                        "video_title": video_title,
+                        "channel": channel,
+                        "thumbnail": video_info.get("thumbnail"),
+                        "language": "en",
+                        "is_generated": True,
+                        "text": full_text,
+                        "timestamped_text": "\n".join(timestamped_lines),
+                        "snippets": formatted_snippets,
+                        "whisper_available": True,
+                        "stats": {
+                            "duration_seconds": round(total_duration, 1),
+                            "formatted_duration": format_seconds_to_timestamp(total_duration),
+                            "snippets_count": len(formatted_snippets),
+                            "word_count": len(full_text.split())
+                        }
+                    }
+                    set_cached_transcript(video_id, payload)
+                    return payload
+
+                # Step 2b: Whisper API (Groq or OpenAI)
                 if selected_provider == "groq":
                     endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
                     model = "whisper-large-v3"

@@ -18,7 +18,8 @@ import {
   Radio,
   SlidersHorizontal,
   Play,
-  FileText
+  FileText,
+  Download
 } from "lucide-react";
 import { RawFeedback } from "@/lib/types";
 import { YouTubeTranscriptModal } from "./YouTubeTranscriptModal";
@@ -38,7 +39,7 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
     url: string;
     title?: string;
     seek?: number;
-    mode?: "player" | "transcript";
+    mode?: "player" | "transcript" | "download";
   } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
@@ -352,6 +353,22 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
                           >
                             <Play className="h-3 w-3 fill-current" />
                             <span>Play In-Site</span>
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              setSelectedTranscriptVideo({
+                                url: item.url,
+                                title: item.title || undefined,
+                                seek: seekSec,
+                                mode: "download",
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#3ad389]/15 border border-[#3ad389]/35 hover:bg-[#3ad389]/25 text-xs font-mono text-[#3ad389] transition-all"
+                            title="Download video resolutions, MP3/M4A audio, or subtitles (YTSage engine)"
+                          >
+                            <Download className="h-3 w-3" />
+                            <span>Download</span>
                           </button>
 
                           <button

@@ -303,6 +303,49 @@ export interface YouTubeTranscriptData {
   error?: string;
 }
 
+export interface YouTubeVideoDownloadOption {
+  resolution: string;
+  label: string;
+  height: number;
+  format_id?: string;
+  ext: string;
+  fps: number;
+  has_audio: boolean;
+  vcodec: string;
+  filesize_bytes?: number;
+  filesize_label: string;
+}
+
+export interface YouTubeAudioDownloadPreset {
+  format: string;
+  bitrate: string;
+  label: string;
+  extension: string;
+  codec: string;
+  description: string;
+}
+
+export interface YouTubeSubtitleTrack {
+  language_code: string;
+  language_name: string;
+  is_auto: boolean;
+}
+
+export interface YouTubeDownloadFormatsResponse {
+  success: boolean;
+  video_id: string;
+  video_url: string;
+  title: string;
+  channel: string;
+  duration: number;
+  duration_formatted: string;
+  thumbnail: string;
+  video_options: YouTubeVideoDownloadOption[];
+  audio_presets: YouTubeAudioDownloadPreset[];
+  subtitles: YouTubeSubtitleTrack[];
+  error?: string;
+}
+
 // ============================================================================
 // Univer Office SDK Slide & Presentation Types
 // ============================================================================

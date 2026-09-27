@@ -18,17 +18,35 @@ import {
   Tv,
   Mic,
   Key,
-  ExternalLink
+  ExternalLink,
+  Film,
+  Music,
+  Sliders,
+  Volume2,
+  FileDown
 } from "lucide-react";
-import { YouTubeTranscriptData, YouTubeTranscriptSnippet } from "@/lib/types";
-import { fetchYouTubeTranscript, transcribeYouTubeAudio, getYouTubeWhisperStatus } from "@/lib/api";
+import {
+  YouTubeTranscriptData,
+  YouTubeTranscriptSnippet,
+  YouTubeDownloadFormatsResponse,
+  YouTubeVideoDownloadOption,
+  YouTubeAudioDownloadPreset,
+  YouTubeSubtitleTrack
+} from "@/lib/types";
+import {
+  fetchYouTubeTranscript,
+  transcribeYouTubeAudio,
+  getYouTubeWhisperStatus,
+  fetchYouTubeFormats,
+  getYouTubeDownloadUrl
+} from "@/lib/api";
 
 interface YouTubeTranscriptModalProps {
   videoUrlOrId: string | null;
   videoTitle?: string;
   initialTranscriptData?: YouTubeTranscriptData | null;
   initialSeekSeconds?: number;
-  initialMode?: "player" | "transcript";
+  initialMode?: "player" | "transcript" | "download";
   onClose: () => void;
 }
 
@@ -48,15 +66,31 @@ export function YouTubeTranscriptModal({
   const [copiedText, setCopiedText] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
   const [copiedSrt, setCopiedSrt] = useState(false);
-  const [activeTab, setActiveTab] = useState<"cues" | "full_text">("cues");
+  const [activeTab, setActiveTab] = useState<"cues" | "full_text" | "download">(
+    initialMode === "download" ? "download" : "cues"
+  );
+
+  // Download Media State (YTSage Engine)
+  const [formatsData, setFormatsData] = useState<YouTubeDownloadFormatsResponse | null>(null);
+  const [isLoadingFormats, setIsLoadingFormats] = useState<boolean>(false);
+  const [formatsError, setFormatsError] = useState<string | null>(null);
+  const [normalizeAudio, setNormalizeAudio] = useState<boolean>(false);
+  const [selectedSubFormat, setSelectedSubFormat] = useState<"srt" | "vtt">("srt");
+  const [downloadingItemId, setDownloadingItemId] = useState<string | null>(null);
 
   // In-Website Video Player State
-  const [showPlayer, setShowPlayer] = useState<boolean>(initialMode !== "transcript");
+  const [showPlayer, setShowPlayer] = useState<boolean>(initialMode === "player");
   const [currentSeekTime, setCurrentSeekTime] = useState<number>(initialSeekSeconds);
   const [playerKey, setPlayerKey] = useState<number>(0);
   const [whisperKeyInput, setWhisperKeyInput] = useState<string>("");
   const [showKeyPrompt, setShowKeyPrompt] = useState<boolean>(false);
-  const [whisperStatus, setWhisperStatus] = useState<{ groq_configured: boolean; openai_configured: boolean; whisper_ready: boolean } | null>(null);
+  const [whisperStatus, setWhisperStatus] = useState<{
+    gemini_configured?: boolean;
+    groq_configured: boolean;
+    openai_configured: boolean;
+    whisper_ready: boolean;
+    default_provider?: string;
+  } | null>(null);
   const [isClient, setIsClient] = useState(false);
 
   // Load saved Groq key from localStorage if present (client-side only)
@@ -158,6 +192,43 @@ export function YouTubeTranscriptModal({
     const s = Math.floor(seconds);
     setCurrentSeekTime(s);
     setPlayerKey((k) => k + 1);
+  };
+
+  // Load available media download options (YTSage engine)
+  const loadFormats = async () => {
+    if (!videoUrlOrId || isLoadingFormats) return;
+    setIsLoadingFormats(true);
+    setFormatsError(null);
+    try {
+      const res = await fetchYouTubeFormats(videoUrlOrId);
+      if (res && res.success) {
+        setFormatsData(res);
+      } else {
+        setFormatsError(res.error || "Failed to extract download formats.");
+      }
+    } catch (err: any) {
+      setFormatsError(err.message || "Failed to load media download options.");
+    } finally {
+      setIsLoadingFormats(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "download" && !formatsData && !isLoadingFormats) {
+      loadFormats();
+    }
+  }, [activeTab, videoUrlOrId]);
+
+  const triggerDownload = (downloadUrl: string, itemId: string) => {
+    setDownloadingItemId(itemId);
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => setDownloadingItemId(null), 3500);
   };
 
   // Trigger Whisper Transcription on Demand
@@ -468,6 +539,20 @@ ${data.text}
                     >
                       Full Text
                     </button>
+                    <button
+                      onClick={() => {
+                        setActiveTab("download");
+                        if (!formatsData) loadFormats();
+                      }}
+                      className={`px-2.5 py-1 rounded-[4px] text-xs font-mono transition-all flex items-center gap-1.5 ${
+                        activeTab === "download"
+                          ? "bg-[#9281f7]/20 text-[#ffffff] border border-[#9281f7]/40"
+                          : "text-[#a1a4a5] hover:text-[#ffffff]"
+                      }`}
+                    >
+                      <Download className="h-3 w-3" />
+                      <span>Download Media</span>
+                    </button>
                   </div>
 
                   {activeTab === "cues" && data?.snippets && data.snippets.length > 0 && (
@@ -605,27 +690,29 @@ ${data.text}
                         YouTube closed captions are restricted or unavailable for this video. You can extract the dialogue in seconds using Whisper Large v3.
                       </p>
 
-                      {/* Backend Whisper readiness indicator */}
+                      {/* Backend Speech-to-Text readiness indicator */}
                       {whisperStatus && (
                         <div
-                          className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-[4px] text-[10px] font-mono border ${
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] text-[11px] font-mono border ${
                             whisperStatus.whisper_ready
                               ? "bg-[#3ad389]/10 border-[#3ad389]/30 text-[#3ad389]"
                               : "bg-[#ffca16]/10 border-[#ffca16]/30 text-[#ffca16]"
                           }`}
                           title={
                             whisperStatus.whisper_ready
-                              ? "A Whisper API key is configured on the backend"
-                              : "No backend key found — paste a free Groq key below to transcribe"
+                              ? "A multimodal speech-to-text engine is active on the backend"
+                              : "No backend key found — paste a key below to transcribe"
                           }
                         >
                           <span className="h-1.5 w-1.5 rounded-full bg-current" />
                           <span>
-                            {whisperStatus.groq_configured
-                              ? "Backend Whisper ready (Groq whisper-large-v3)"
+                            {whisperStatus.gemini_configured
+                              ? "Speech-to-Text Ready (Google Gemini 3.5 Flash Lite)"
+                              : whisperStatus.groq_configured
+                              ? "Speech-to-Text Ready (Groq whisper-large-v3)"
                               : whisperStatus.openai_configured
-                              ? "Backend Whisper ready (OpenAI)"
-                              : "No backend key — paste a free Groq key below"}
+                              ? "Speech-to-Text Ready (OpenAI Whisper)"
+                              : "Speech-to-Text Ready (Zero configuration)"}
                           </span>
                         </div>
                       )}
@@ -637,7 +724,7 @@ ${data.text}
                         <label className="text-[11px] font-mono text-[#a1a4a5] flex items-center justify-between">
                           <span className="flex items-center gap-1">
                             <Key className="h-3 w-3 text-[#ffca16]" />
-                            <span>Groq API Key (Free) or OpenAI Key:</span>
+                            <span>Custom Groq or OpenAI Key (Optional):</span>
                           </span>
                           <a
                             href="https://console.groq.com/keys"
@@ -653,7 +740,7 @@ ${data.text}
                           type="password"
                           value={whisperKeyInput}
                           onChange={(e) => setWhisperKeyInput(e.target.value)}
-                          placeholder="gsk_... or sk-..."
+                          placeholder="gsk_... or sk-... (Leave blank to use default free tier)"
                           className="w-full px-3 py-1.5 bg-[#0c0d10] border border-[#292d30] rounded-[6px] text-xs font-mono text-[#ffffff] placeholder-[#6e727a] outline-none focus:border-[#9281f7]"
                         />
                       </div>
@@ -669,12 +756,12 @@ ${data.text}
                         {isTranscribing ? (
                           <>
                             <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                            <span>Transcribing Audio with Whisper...</span>
+                            <span>Transcribing Audio in Real-Time...</span>
                           </>
                         ) : (
                           <>
                             <Mic className="h-3.5 w-3.5" />
-                            <span>Transcribe with Whisper ASR</span>
+                            <span>Transcribe Spoken Dialogue Now</span>
                           </>
                         )}
                       </button>
@@ -684,15 +771,339 @@ ${data.text}
                           onClick={() => setShowKeyPrompt(true)}
                           className="px-3 py-2 rounded-[8px] bg-[#181a20] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#a1a4a5] hover:text-[#ffffff] transition-all"
                         >
-                          Configure Key
+                          Custom Key
                         </button>
                       )}
                     </div>
                   </div>
                 )}
 
-                {/* Render Cues */}
-                {activeTab === "cues" ? (
+                {/* Render Selected Tab: Download Media vs Dialogue Cues vs Full Text */}
+                {activeTab === "download" ? (
+                  <div className="space-y-6 select-text">
+                    {/* Download Suite Banner */}
+                    <div className="p-4 rounded-[12px] bg-[#121418] border border-[#292d30] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="h-10 w-10 rounded-[8px] bg-[#9281f7]/15 border border-[#9281f7]/30 flex items-center justify-center text-[#9281f7] shrink-0">
+                          <Download className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-sans font-medium text-[#ffffff] flex items-center gap-2">
+                            <span>YTSage Media & Subtitle Exporter</span>
+                            <span className="text-[10px] font-mono text-[#3ad389] bg-[#3ad389]/10 px-2 py-0.5 rounded-[4px] border border-[#3ad389]/25 font-bold">
+                              100% REAL-TIME
+                            </span>
+                          </h4>
+                          <p className="text-xs font-mono text-[#a1a4a5] mt-0.5">
+                            Direct streaming downloads with multi-resolution video merging, audio normalization, and subtitle conversion.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={loadFormats}
+                        disabled={isLoadingFormats}
+                        className="px-3 py-1.5 rounded-[6px] bg-[#181a20] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#a1a4a5] hover:text-[#ffffff] transition-all flex items-center gap-1.5 shrink-0 self-start sm:self-auto"
+                        title="Refresh available stream resolutions and audio presets"
+                      >
+                        <RefreshCw className={`h-3.5 w-3.5 ${isLoadingFormats ? "animate-spin text-[#9281f7]" : ""}`} />
+                        <span>Refresh Formats</span>
+                      </button>
+                    </div>
+
+                    {/* Loading or Error State */}
+                    {isLoadingFormats ? (
+                      <div className="p-12 text-center space-y-3 bg-[#121418] rounded-[12px] border border-[#292d30]">
+                        <RefreshCw className="h-8 w-8 text-[#9281f7] animate-spin mx-auto" />
+                        <h5 className="text-sm font-sans font-medium text-[#ffffff]">
+                          Analyzing available streams & presets...
+                        </h5>
+                        <p className="text-xs font-mono text-[#a1a4a5] max-w-sm mx-auto">
+                          Inspecting multi-resolution progressive and adaptive video formats, direct AAC audio feeds, and multi-language subtitle tracks.
+                        </p>
+                      </div>
+                    ) : formatsError ? (
+                      <div className="p-5 rounded-[12px] bg-[#ff6465]/10 border border-[#ff6465]/30 space-y-3">
+                        <div className="flex items-start gap-2.5 text-xs font-mono text-[#ff6465]">
+                          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                          <div className="flex-1">
+                            <p className="font-semibold">Format Extraction Notice</p>
+                            <p className="mt-0.5 text-[#ff9592]">{formatsError}</p>
+                          </div>
+                        </div>
+                        <button
+                          onClick={loadFormats}
+                          className="px-3 py-1.5 rounded-[6px] bg-[#ff6465]/20 hover:bg-[#ff6465]/30 text-xs font-mono text-[#ffffff] transition-all"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                    ) : formatsData ? (
+                      <div className="space-y-6">
+                        {/* Section 1: Video Downloads */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Film className="h-4 w-4 text-[#ff6465]" />
+                              <h5 className="text-xs font-mono uppercase tracking-wider text-[#ffffff] font-medium">
+                                Video Downloads (Merged MP4 with Best Audio)
+                              </h5>
+                            </div>
+                            <span className="text-[11px] font-mono text-[#a1a4a5]">
+                              {formatsData.video_options?.length || 0} Resolutions Available
+                            </span>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                            {formatsData.video_options && formatsData.video_options.length > 0 ? (
+                              formatsData.video_options.map((opt, i) => {
+                                const isDownloading = downloadingItemId === `vid_${opt.resolution}_${opt.format_id}`;
+                                return (
+                                  <div
+                                    key={i}
+                                    className="p-3.5 rounded-[10px] bg-[#121418] border border-[#20232a] hover:border-[#3e424d] transition-all flex flex-col justify-between space-y-3 group"
+                                  >
+                                    <div className="space-y-1.5">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-xs font-mono font-bold text-[#ffffff] flex items-center gap-1.5">
+                                          <span>{opt.resolution}p</span>
+                                          {opt.height >= 1080 && (
+                                            <span className="text-[9px] bg-[#ff6465]/15 border border-[#ff6465]/30 text-[#ff6465] px-1.5 py-0.2 rounded font-bold">
+                                              {opt.height >= 2160 ? "4K UHD" : opt.height >= 1440 ? "2K QHD" : "FULL HD"}
+                                            </span>
+                                          )}
+                                        </span>
+                                        <span className="text-[10px] font-mono text-[#6e727a]">
+                                          {opt.fps} FPS
+                                        </span>
+                                      </div>
+                                      <div className="text-xs font-sans text-[#a1a4a5] line-clamp-1">
+                                        {opt.label}
+                                      </div>
+                                      <div className="flex items-center gap-2 text-[10px] font-mono text-[#6e727a]">
+                                        <span>{opt.filesize_label}</span>
+                                        <span>•</span>
+                                        <span className="uppercase">{opt.ext}</span>
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() =>
+                                        triggerDownload(
+                                          getYouTubeDownloadUrl({
+                                            url: videoUrlOrId,
+                                            type: "video",
+                                            quality: opt.resolution,
+                                            format_id: opt.format_id,
+                                          }),
+                                          `vid_${opt.resolution}_${opt.format_id}`
+                                        )
+                                      }
+                                      disabled={!!downloadingItemId}
+                                      className="w-full py-1.5 px-3 rounded-[6px] bg-[#181a20] hover:bg-[#ff6465] hover:text-[#ffffff] border border-[#292d30] hover:border-[#ff6465] text-xs font-mono text-[#a1a4a5] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                    >
+                                      {isDownloading ? (
+                                        <>
+                                          <RefreshCw className="h-3 w-3 animate-spin text-[#ffffff]" />
+                                          <span>Preparing Stream...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Download className="h-3 w-3" />
+                                          <span>Download {opt.resolution}p MP4</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="col-span-full p-4 text-center text-xs font-mono text-[#6e727a] bg-[#121418] rounded-[8px]">
+                                No separate video streams detected.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Section 2: Audio Presets */}
+                        <div className="space-y-3 pt-3 border-t border-[#20232a]">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Music className="h-4 w-4 text-[#9281f7]" />
+                              <h5 className="text-xs font-mono uppercase tracking-wider text-[#ffffff] font-medium">
+                                Audio Extraction & Codecs (YTSage Presets)
+                              </h5>
+                            </div>
+
+                            {/* Audio Normalization Toggle */}
+                            <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-mono text-[#a1a4a5]">
+                              <input
+                                type="checkbox"
+                                checked={normalizeAudio}
+                                onChange={(e) => setNormalizeAudio(e.target.checked)}
+                                className="rounded border-[#292d30] text-[#9281f7] focus:ring-0"
+                              />
+                              <span className="flex items-center gap-1">
+                                <Volume2 className="h-3 w-3 text-[#ffca16]" />
+                                <span>Audio Normalization (EBU R128)</span>
+                              </span>
+                            </label>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                            {formatsData.audio_presets?.map((preset, i) => {
+                              const isDownloading = downloadingItemId === `audio_${preset.format}_${preset.bitrate}`;
+                              return (
+                                <div
+                                  key={i}
+                                  className="p-3.5 rounded-[10px] bg-[#121418] border border-[#20232a] hover:border-[#3e424d] transition-all flex flex-col justify-between space-y-3 group"
+                                >
+                                  <div className="space-y-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <span className="text-xs font-mono font-bold text-[#ffffff] uppercase flex items-center gap-1">
+                                        <span>{preset.format}</span>
+                                        {preset.format === "m4a" && (
+                                          <span className="text-[9px] bg-[#3ad389]/15 border border-[#3ad389]/30 text-[#3ad389] px-1.5 py-0.2 rounded font-bold">
+                                            FASTEST (~2s)
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="text-[10px] font-mono text-[#9281f7]">
+                                        {preset.bitrate === "best" ? "Direct Copy" : `${preset.bitrate} kbps`}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs font-sans text-[#f0f0f0]">
+                                      {preset.label}
+                                    </div>
+                                    <p className="text-[11px] font-sans text-[#6e727a] line-clamp-2 leading-relaxed">
+                                      {preset.description}
+                                    </p>
+                                  </div>
+
+                                  <button
+                                    onClick={() =>
+                                      triggerDownload(
+                                        getYouTubeDownloadUrl({
+                                          url: videoUrlOrId,
+                                          type: "audio",
+                                          audio_format: preset.format,
+                                          audio_bitrate: preset.bitrate,
+                                          normalize: normalizeAudio,
+                                        }),
+                                        `audio_${preset.format}_${preset.bitrate}`
+                                      )
+                                    }
+                                    disabled={!!downloadingItemId}
+                                    className="w-full py-1.5 px-3 rounded-[6px] bg-[#181a20] hover:bg-[#9281f7] hover:text-[#ffffff] border border-[#292d30] hover:border-[#9281f7] text-xs font-mono text-[#a1a4a5] transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                  >
+                                    {isDownloading ? (
+                                      <>
+                                        <RefreshCw className="h-3 w-3 animate-spin text-[#ffffff]" />
+                                        <span>Extracting Audio...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Download className="h-3 w-3" />
+                                        <span>Download {preset.format.toUpperCase()}</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Section 3: Subtitles */}
+                        <div className="space-y-3 pt-3 border-t border-[#20232a]">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <FileDown className="h-4 w-4 text-[#3ad389]" />
+                              <h5 className="text-xs font-mono uppercase tracking-wider text-[#ffffff] font-medium">
+                                Subtitle Tracks & Closed Captions
+                              </h5>
+                            </div>
+
+                            {/* Subtitle Format Selector */}
+                            <div className="flex items-center gap-1 bg-[#181a20] p-0.5 rounded-[6px] border border-[#292d30]">
+                              <button
+                                onClick={() => setSelectedSubFormat("srt")}
+                                className={`px-2 py-0.5 rounded-[4px] text-[11px] font-mono transition-all ${
+                                  selectedSubFormat === "srt"
+                                    ? "bg-[#3ad389]/20 text-[#3ad389] font-bold border border-[#3ad389]/40"
+                                    : "text-[#a1a4a5] hover:text-[#ffffff]"
+                                }`}
+                              >
+                                .SRT
+                              </button>
+                              <button
+                                onClick={() => setSelectedSubFormat("vtt")}
+                                className={`px-2 py-0.5 rounded-[4px] text-[11px] font-mono transition-all ${
+                                  selectedSubFormat === "vtt"
+                                    ? "bg-[#3ad389]/20 text-[#3ad389] font-bold border border-[#3ad389]/40"
+                                    : "text-[#a1a4a5] hover:text-[#ffffff]"
+                                }`}
+                              >
+                                .VTT
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                            {formatsData.subtitles && formatsData.subtitles.length > 0 ? (
+                              formatsData.subtitles.map((sub, i) => {
+                                const isDownloading = downloadingItemId === `sub_${sub.language_code}_${selectedSubFormat}`;
+                                return (
+                                  <div
+                                    key={i}
+                                    className="p-3 rounded-[8px] bg-[#121418] border border-[#20232a] flex items-center justify-between gap-2"
+                                  >
+                                    <div className="overflow-hidden">
+                                      <div className="text-xs font-mono text-[#ffffff] truncate">
+                                        {sub.language_name}
+                                      </div>
+                                      <div className="text-[10px] font-mono text-[#6e727a]">
+                                        Lang: {sub.language_code} • {sub.is_auto ? "Auto-Generated" : "Manual Subtitle"}
+                                      </div>
+                                    </div>
+
+                                    <button
+                                      onClick={() =>
+                                        triggerDownload(
+                                          getYouTubeDownloadUrl({
+                                            url: videoUrlOrId,
+                                            type: "subtitle",
+                                            sub_lang: sub.language_code,
+                                            sub_format: selectedSubFormat,
+                                          }),
+                                          `sub_${sub.language_code}_${selectedSubFormat}`
+                                        )
+                                      }
+                                      disabled={!!downloadingItemId}
+                                      className="px-2.5 py-1 rounded-[6px] bg-[#181a20] hover:bg-[#3ad389] hover:text-[#000000] border border-[#292d30] hover:border-[#3ad389] text-[11px] font-mono text-[#a1a4a5] transition-all flex items-center gap-1 shrink-0 disabled:opacity-50"
+                                      title={`Download ${sub.language_name} as .${selectedSubFormat}`}
+                                    >
+                                      {isDownloading ? (
+                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Download className="h-3 w-3" />
+                                      )}
+                                      <span>.{selectedSubFormat.toUpperCase()}</span>
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            ) : (
+                              <div className="col-span-full p-4 text-center text-xs font-mono text-[#6e727a] bg-[#121418] rounded-[8px]">
+                                No subtitle tracks available on YouTube for this video. Use the Dialogue Cues tab to download our ASR transcript!
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : activeTab === "cues" ? (
                   filteredSnippets.length === 0 ? (
                     <div className="text-center py-12 text-xs font-mono text-[#6e727a]">
                       {data?.snippets && data.snippets.length > 0
