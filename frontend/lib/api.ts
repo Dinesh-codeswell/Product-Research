@@ -1,4 +1,4 @@
-import { ResearchSession, StartResearchPayload, YouTubeTranscriptData } from "./types";
+import { ResearchSession, StartResearchPayload, YouTubeTranscriptData, UniverSlideData } from "./types";
 
 export function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -183,21 +183,27 @@ export interface OfficeSourcesResponse {
 export interface OfficeConnectedData {
   source_type: "research" | "seo";
   source_id: string;
+  session_id?: string;
+  query?: string;
+  domain?: string;
   title: string;
   summary: string;
-  workbook: any;
+  workbook?: any;
   document?: {
     title: string;
     markdown: string;
   };
   document_markdown?: string;
   markdown?: string;
+  slides?: UniverSlideData;
+  stats?: Record<string, any>;
+  scores?: Record<string, any>;
 }
 
 export interface OfficeSavedDocument {
   id: string;
   title: string;
-  doc_type: "sheets" | "docs";
+  doc_type: "sheets" | "docs" | "slides";
   source_type?: string;
   source_id?: string;
   summary?: string;
@@ -237,6 +243,27 @@ export function getOfficeExportXlsxUrl(sourceType: "research" | "seo", sourceId:
   return `${base}/office/export/${sourceType}/${sourceId}/xlsx`;
 }
 
+export function getOfficeExportPptxUrl(sourceType: "research" | "seo", sourceId: string): string {
+  const base = getBaseUrl();
+  return `${base}/office/export/${sourceType}/${sourceId}/pptx`;
+}
+
+export async function exportOfficeCustomPptx(payload: {
+  title: string;
+  slides: any;
+}): Promise<Blob> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/office/export/custom-pptx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to export PowerPoint presentation: ${res.statusText}`);
+  }
+  return res.blob();
+}
+
 export async function listOfficeDocuments(): Promise<OfficeSavedDocument[]> {
   const base = getBaseUrl();
   try {
@@ -261,7 +288,7 @@ export async function getOfficeDocument(docId: string): Promise<OfficeSavedDocum
 export async function saveOfficeDocument(payload: {
   id?: string;
   title: string;
-  doc_type: "sheets" | "docs";
+  doc_type: "sheets" | "docs" | "slides";
   source_type?: string;
   source_id?: string;
   snapshot: any;

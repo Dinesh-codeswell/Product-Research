@@ -53,3 +53,60 @@ async def test_office_sources():
         data = res.json()
         assert "research" in data
         assert "seo" in data
+
+
+@pytest.mark.anyio
+async def test_office_slides_and_pptx():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        # 1. Save a presentation slide deck
+        slide_payload = {
+            "title": "Executive Pitch Deck",
+            "doc_type": "slides",
+            "source_type": "research",
+            "snapshot": {
+                "id": "slides_test_1",
+                "title": "Executive Pitch Deck",
+                "slideOrder": ["slide_1", "slide_2"],
+                "slides": {
+                    "slide_1": {
+                        "id": "slide_1",
+                        "title": "Executive Overview",
+                        "subtitle": "Market Opportunity & Findings",
+                        "category": "Overview",
+                        "metrics": [{"label": "Signals", "value": 150}],
+                        "bullets": ["Strong consumer appetite", "High churn due to friction"],
+                        "speakerNotes": "Slide 1 briefing"
+                    },
+                    "slide_2": {
+                        "id": "slide_2",
+                        "title": "Verbatim Evidence",
+                        "subtitle": "Direct Customer Voice",
+                        "category": "Evidence",
+                        "quote": {"text": "This saved 10 hours a week.", "author": "dev1", "channel": "reddit"}
+                    }
+                }
+            }
+        }
+        res = await ac.post("/api/v1/office/documents", json=slide_payload)
+        assert res.status_code == 200
+        doc_id = res.json()["id"]
+
+        # 2. Retrieve the slide document
+        res_get = await ac.get(f"/api/v1/office/documents/{doc_id}")
+        assert res_get.status_code == 200
+        assert res_get.json()["doc_type"] == "slides"
+
+        # 3. Export custom PPTX
+        pptx_req = {
+            "title": "Executive Pitch Deck",
+            "slides": res_get.json()["snapshot"]
+        }
+        res_pptx = await ac.post("/api/v1/office/export/custom-pptx", json=pptx_req)
+        assert res_pptx.status_code == 200
+        assert "application/vnd.openxmlformats-officedocument.presentationml.presentation" in res_pptx.headers.get("content-type", "")
+        assert len(res_pptx.content) > 1000  # valid binary pptx payload
+
+        # Clean up
+        await ac.delete(f"/api/v1/office/documents/{doc_id}")
+

@@ -17,9 +17,26 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
+try:
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    HAS_OPENPYXL = True
+except ImportError:
+    openpyxl = None
+    HAS_OPENPYXL = False
+
+try:
+    import pptx
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
+    from pptx.dml.color import RGBColor
+    from pptx.enum.text import PP_ALIGN
+    from pptx.enum.shapes import MSO_SHAPE
+    HAS_PPTX = True
+except ImportError:
+    pptx = None
+    HAS_PPTX = False
 
 from app.core.database import get_db
 from app.models.entities import EvidenceQuote, GeneratedSpec, InsightCluster, RawFeedback, ResearchSession
@@ -61,7 +78,7 @@ def _save_documents(docs: List[Dict[str, Any]]):
 class SaveDocumentPayload(BaseModel):
     id: Optional[str] = None
     title: str = "Untitled Document"
-    doc_type: str = "sheets"  # "sheets" or "docs"
+    doc_type: str = "sheets"  # "sheets", "docs", or "slides"
     source_type: Optional[str] = None  # "research", "seo", "browser", or None
     source_id: Optional[str] = None
     snapshot: Dict[str, Any] = Field(default_factory=dict)
@@ -71,6 +88,152 @@ class SaveDocumentPayload(BaseModel):
 class ExportCustomXlsxPayload(BaseModel):
     title: str = "Office_Export"
     sheets: Dict[str, List[List[Any]]] = Field(default_factory=dict)
+
+
+class ExportCustomPptxPayload(BaseModel):
+    title: str = "Presentation"
+    slides: Dict[str, Any] = Field(default_factory=dict)
+
+
+def generate_pptx_from_slides(slides_data: Dict[str, Any], presentation_title: str = "Presentation") -> io.BytesIO:
+    """Generates a professional 16:9 widescreen PowerPoint presentation (.pptx) from Univer slide data."""
+    if not HAS_PPTX:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="PowerPoint export engine (python-pptx) is not installed in the environment."
+        )
+
+    prs = Presentation()
+    prs.slide_width = Inches(13.333)
+    prs.slide_height = Inches(7.5)
+    blank_layout = prs.slide_layouts[6]
+
+    slide_order = slides_data.get("slideOrder", [])
+    slides_map = slides_data.get("slides", {})
+
+    if not slide_order and slides_map:
+        slide_order = list(slides_map.keys())
+
+    for slide_id in slide_order:
+        s_data = slides_map.get(slide_id, {})
+        slide = prs.slides.add_slide(blank_layout)
+
+        # Dark sleek background (#12141d)
+        background = slide.background
+        fill = background.fill
+        fill.solid()
+        fill.fore_color.rgb = RGBColor(18, 20, 29)
+
+        # Slide Category tag
+        category = s_data.get("category", "")
+        if category:
+            cat_box = slide.shapes.add_textbox(Inches(0.8), Inches(0.4), Inches(11.7), Inches(0.4))
+            c_tf = cat_box.text_frame
+            cp = c_tf.paragraphs[0]
+            cp.text = category.upper()
+            cp.font.name = "Arial"
+            cp.font.size = Pt(11)
+            cp.font.bold = True
+            cp.font.color.rgb = RGBColor(146, 129, 247)
+
+        # Slide Title & Subtitle
+        top_offset = Inches(0.7) if category else Inches(0.5)
+        title_box = slide.shapes.add_textbox(Inches(0.8), top_offset, Inches(11.7), Inches(1.2))
+        tf = title_box.text_frame
+        tf.word_wrap = True
+        p_title = tf.paragraphs[0]
+        p_title.text = s_data.get("title", "Untitled Slide")
+        p_title.font.name = "Arial"
+        p_title.font.size = Pt(26)
+        p_title.font.bold = True
+        p_title.font.color.rgb = RGBColor(255, 255, 255)
+
+        sub_text = s_data.get("subtitle", "")
+        if sub_text:
+            p_sub = tf.add_paragraph()
+            p_sub.text = sub_text
+            p_sub.font.name = "Arial"
+            p_sub.font.size = Pt(13)
+            p_sub.font.color.rgb = RGBColor(170, 175, 195)
+
+        # Metrics cards
+        metrics = s_data.get("metrics", [])
+        has_metrics = bool(metrics)
+        if has_metrics:
+            num_metrics = min(len(metrics), 4)
+            card_width = 11.7 / num_metrics
+            for m_idx, m in enumerate(metrics[:4]):
+                left = Inches(0.8 + m_idx * card_width)
+                top = Inches(2.1)
+                width = Inches(card_width - 0.25)
+                height = Inches(1.3)
+
+                shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
+                shape.fill.solid()
+                shape.fill.fore_color.rgb = RGBColor(30, 32, 43)
+                shape.line.color.rgb = RGBColor(58, 62, 80)
+
+                m_tf = shape.text_frame
+                m_tf.word_wrap = True
+                mp1 = m_tf.paragraphs[0]
+                mp1.text = str(m.get("value", ""))
+                mp1.font.bold = True
+                mp1.font.size = Pt(22)
+                mp1.font.color.rgb = RGBColor(58, 211, 137)
+
+                mp2 = m_tf.add_paragraph()
+                mp2.text = str(m.get("label", ""))
+                mp2.font.size = Pt(11)
+                mp2.font.color.rgb = RGBColor(200, 205, 220)
+
+        # Bullets
+        bullets = s_data.get("bullets", [])
+        content_top = Inches(3.6) if has_metrics else Inches(2.1)
+        content_height = Inches(3.4) if has_metrics else Inches(4.8)
+
+        if bullets:
+            content_box = slide.shapes.add_textbox(Inches(0.8), content_top, Inches(11.7), content_height)
+            ctf = content_box.text_frame
+            ctf.word_wrap = True
+            for b_idx, bullet in enumerate(bullets):
+                bp = ctf.paragraphs[0] if b_idx == 0 else ctf.add_paragraph()
+                bp.text = f"•  {bullet}"
+                bp.font.name = "Arial"
+                bp.font.size = Pt(15)
+                bp.font.color.rgb = RGBColor(230, 235, 245)
+                bp.space_after = Pt(10)
+
+        # Quote
+        quote = s_data.get("quote")
+        if quote and quote.get("text"):
+            q_top = Inches(5.4) if (has_metrics or bullets) else Inches(2.4)
+            q_box = slide.shapes.add_textbox(Inches(0.8), q_top, Inches(11.7), Inches(1.5))
+            qtf = q_box.text_frame
+            qtf.word_wrap = True
+            qp = qtf.paragraphs[0]
+            qp.text = f"“{quote.get('text')}”"
+            qp.font.italic = True
+            qp.font.size = Pt(14)
+            qp.font.color.rgb = RGBColor(255, 200, 100)
+
+            author = quote.get("author") or "Evidence Source"
+            channel = quote.get("channel") or ""
+            qp2 = qtf.add_paragraph()
+            qp2.text = f"— {author} {f'({channel.upper()})' if channel else ''}"
+            qp2.font.size = Pt(11)
+            qp2.font.color.rgb = RGBColor(160, 165, 180)
+
+        # Speaker notes
+        notes_text = s_data.get("speakerNotes", "")
+        if notes_text:
+            notes_slide = slide.notes_slide
+            text_frame = notes_slide.notes_text_frame
+            text_frame.text = notes_text
+
+    out = io.BytesIO()
+    prs.save(out)
+    out.seek(0)
+    return out
 
 
 # --- 1. Available Data Sources ---
@@ -368,6 +531,118 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
             doc_markdown += f"- **[{ts}] [{yf.title or 'YouTube Video'}]({yf.url})**\n"
             doc_markdown += f"  > \"{yf.content}\"\n\n"
 
+    # 6-Slide Univer Slide Presentation Model
+    slide_1_metrics = [
+        {"label": "Total Signals", "value": session.total_items_scraped or len(feedbacks_data)},
+        {"label": "Insight Clusters", "value": len(clusters_data)},
+        {"label": "Execution Mode", "value": (session.execution_mode or "focus").upper()},
+        {"label": "Status", "value": session.status.upper()}
+    ]
+    slide_1_bullets = [
+        f"Research Scope: Comprehensive multi-channel analysis for '{session.query}'.",
+        f"Key Synthesis: {session.executive_summary[:200] + '...' if session.executive_summary else 'Inference and aggregation completed across live channels.'}",
+        "Data ingested directly from Reddit, YouTube, X, and G2 discussions."
+    ]
+
+    slide_2_bullets = []
+    for c in clusters_data[:4]:
+        slide_2_bullets.append(f"{c['title']} ({c['category']}): Severity {round(c['severity_score']*100)}% — {c['description'][:140]}...")
+
+    slide_3_quote = None
+    slide_3_bullets = []
+    all_quotes = [q for c in clusters_data for q in c["quotes"]]
+    if all_quotes:
+        slide_3_quote = {
+            "text": all_quotes[0]["quote_text"],
+            "author": all_quotes[0]["source_author"],
+            "channel": all_quotes[0]["source_channel"]
+        }
+        for q in all_quotes[1:4]:
+            slide_3_bullets.append(f"\"{q['quote_text'][:120]}...\" — {q['source_author']} ({q['source_channel'].upper()})")
+
+    slide_4_bullets = []
+    for yf in yt_feedbacks[:4]:
+        ts = (yf.raw_metadata or {}).get("timestamp") or "00:00"
+        slide_4_bullets.append(f"[{ts}] {yf.title or 'YouTube Video'}: \"{yf.content[:120]}...\"")
+
+    slide_5_bullets = [
+        "Feature Spec 1: Implement direct zero-latency automated workflow addressing core friction points.",
+        "Feature Spec 2: Add real-time alerting and automated telemetry metrics for active clusters.",
+        "Target Persona: Developers and product owners seeking automated evidence extraction.",
+        "ROI Projection: High impact on retention by eliminating manual transcript and sentiment reviews."
+    ]
+
+    slide_6_bullets = [
+        "Immediate Action: Validate top 2 clusters with rapid prototype feedback loops.",
+        "Short Term: Export PRD specifications directly to issue trackers and engineering backlog.",
+        "Monitoring: Track daily signal frequency and sentiment shifts across integrated channels."
+    ]
+
+    slides_snapshot = {
+        "id": f"slides_research_{session.id}",
+        "title": f"Pitch Deck: {session.query[:32]}",
+        "pageSize": {"width": 960, "height": 540},
+        "slideOrder": ["slide_1", "slide_2", "slide_3", "slide_4", "slide_5", "slide_6"],
+        "slides": {
+            "slide_1": {
+                "id": "slide_1",
+                "title": session.query,
+                "subtitle": "PulseRadar Autonomous Consumer Discovery Pitch Deck",
+                "category": "1. Executive Summary & Overview",
+                "layout": "metrics",
+                "metrics": slide_1_metrics,
+                "bullets": slide_1_bullets,
+                "speakerNotes": f"Executive presentation briefing for research query: {session.query}."
+            },
+            "slide_2": {
+                "id": "slide_2",
+                "title": "Key Problem Signals & Pain Points",
+                "subtitle": "Synthesized Developer & Consumer Friction Clusters",
+                "category": "2. Friction & Pain Points",
+                "layout": "bullets",
+                "bullets": slide_2_bullets or ["No high-severity friction clusters identified."],
+                "speakerNotes": "Review prioritized friction clusters and severity scores to inform roadmap."
+            },
+            "slide_3": {
+                "id": "slide_3",
+                "title": "Voice of the Customer & Market Evidence",
+                "subtitle": "Verbatim Developer Feedback from Reddit, YouTube, X & G2",
+                "category": "3. Customer Evidence",
+                "layout": "quote",
+                "quote": slide_3_quote,
+                "bullets": slide_3_bullets,
+                "speakerNotes": "Verbatim testimonials validating customer pain points."
+            },
+            "slide_4": {
+                "id": "slide_4",
+                "title": "YouTube Video Transcripts & Spoken Dialogue",
+                "subtitle": "Timestamped Expert Opinions & Video Analysis",
+                "category": "4. Video Analysis",
+                "layout": "bullets",
+                "bullets": slide_4_bullets or ["No spoken video transcripts extracted for this query."],
+                "speakerNotes": "Video discussion points with second-level timestamps."
+            },
+            "slide_5": {
+                "id": "slide_5",
+                "title": "Strategic PRD & Feature Specifications",
+                "subtitle": "Actionable Product Specs Driven by Extracted Signals",
+                "category": "5. Product Requirements",
+                "layout": "bullets",
+                "bullets": slide_5_bullets,
+                "speakerNotes": "High-priority specifications derived from consumer pain points."
+            },
+            "slide_6": {
+                "id": "slide_6",
+                "title": "Execution Roadmap & Next Actions",
+                "subtitle": "Timeline, Milestones & Immediate Deliverables",
+                "category": "6. Roadmap & Next Steps",
+                "layout": "bullets",
+                "bullets": slide_6_bullets,
+                "speakerNotes": "Immediate next steps for engineering and product leadership."
+            }
+        }
+    }
+
     return {
         "source_type": "research",
         "source_id": session.id,
@@ -382,6 +657,7 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
             "title": f"Research - {session.query}",
             "markdown": doc_markdown
         },
+        "slides": slides_snapshot,
         "stats": {
             "total_items": session.total_items_scraped,
             "clusters_count": len(session.clusters),
@@ -557,6 +833,131 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
 - **Recommended Meta Description**: {ai_insights.get('high_ctr_meta_description') or meta.get('recommended_description', {}).get('text', '')}
 """
 
+    # 6-Slide Univer Slide Presentation Model for SEO
+    geo_score = session.geo_readiness_score or 0
+    word_count = keywords.get("word_count", 0)
+    render_mode = rendering.get("rendering_mode", "UNKNOWN")
+    risk_level = rendering.get("risk_level", "LOW")
+
+    seo_slide_1_metrics = [
+        {"label": "Overall Score", "value": f"{session.overall_score}/100"},
+        {"label": "GEO Readiness", "value": f"{geo_score}/100"},
+        {"label": "Word Count", "value": word_count},
+        {"label": "CSR Risk", "value": risk_level}
+    ]
+    seo_slide_1_bullets = [
+        f"Audited Domain: {session.domain} ({session.url})",
+        f"Audit Type: {session.audit_type.upper()} | Execution: {session.status.upper()}",
+        f"AI Citation Readiness: {'HIGH' if geo_score >= 70 else 'MODERATE' if geo_score >= 50 else 'LOW'}"
+    ]
+
+    p_scores = geo.get("pillar_scores") or geo.get("pillars") or {}
+    seo_slide_2_bullets = []
+    if isinstance(p_scores, dict):
+        for pk, pv in p_scores.items():
+            if isinstance(pv, dict):
+                seo_slide_2_bullets.append(f"{pk.replace('_', ' ').title()}: Score {pv.get('score', 0)}/{pv.get('max', 25)} ({pv.get('percentage', 0)}%)")
+    if not seo_slide_2_bullets:
+        seo_slide_2_bullets = [
+            "Evidence Density: High density of statistical facts and numerical claims",
+            "Inverted Pyramid Structure: Direct upfront answer before elaborating details",
+            "E-E-A-T Authority: Verified author credentials and outbound reputable citations",
+            "Bot Crawlability: Open robots.txt directives for OpenAI, Claude, and Perplexity"
+        ]
+
+    seo_slide_3_bullets = [
+        f"Rendering Architecture: {render_mode}",
+        f"SSR Baseline Words: {rendering.get('ssr', {}).get('word_count', 0)} words",
+        f"CSR Hydrated Words: {rendering.get('csr', {}).get('word_count', 0)} words",
+        f"Dynamic Gap: +{rendering.get('words_difference', 0)} words ({rendering.get('word_growth_ratio', 1.0)}x post-hydration growth)",
+        f"Recommendation: {'Pre-render dynamic content server-side to prevent bot drop-off.' if risk_level == 'HIGH' else 'Server-side rendering is healthy.'}"
+    ]
+
+    ai_bots = tech.get("robots_txt", {}).get("ai_bot_access", {})
+    seo_slide_4_bullets = [
+        f"GPTBot (OpenAI / ChatGPT): {'ALLOWED' if ai_bots.get('gptbot', {}).get('allowed') else 'BLOCKED'}",
+        f"ClaudeBot (Anthropic Claude): {'ALLOWED' if ai_bots.get('claudebot', {}).get('allowed') else 'BLOCKED'}",
+        f"PerplexityBot (Perplexity AI): {'ALLOWED' if ai_bots.get('perplexitybot', {}).get('allowed') else 'BLOCKED'}",
+        f"Google-Extended (Gemini): {'ALLOWED' if ai_bots.get('google_extended', {}).get('allowed') else 'BLOCKED'}"
+    ]
+
+    top_kw = keywords.get("top_keywords", [])
+    seo_slide_5_bullets = [
+        f"Keyword '{k.get('keyword')}': Density {k.get('density_percent')}% (Intent: {k.get('intent', 'Informational')})"
+        for k in top_kw[:4]
+    ] or ["Keyword extraction complete."]
+
+    recs = geo.get("recommendations", [])
+    seo_slide_6_bullets = [f"Fix: {r}" for r in recs[:5]] or [
+        "Add explicit schema markup (TechArticle, Product, Organization)",
+        "Allow AI search crawlers in robots.txt without Cloudflare challenge walls",
+        "Introduce structured evidence tables and verified statistical numbers"
+    ]
+
+    seo_slides_snapshot = {
+        "id": f"slides_seo_{session.id}",
+        "title": f"SEO & GEO Deck: {session.domain}",
+        "pageSize": {"width": 960, "height": 540},
+        "slideOrder": ["slide_1", "slide_2", "slide_3", "slide_4", "slide_5", "slide_6"],
+        "slides": {
+            "slide_1": {
+                "id": "slide_1",
+                "title": f"SEO & GEO Audit: {session.domain}",
+                "subtitle": "Generative Engine Optimization & Technical Health Deck",
+                "category": "1. Executive Scorecard",
+                "layout": "metrics",
+                "metrics": seo_slide_1_metrics,
+                "bullets": seo_slide_1_bullets,
+                "speakerNotes": f"Executive briefing for domain: {session.domain}."
+            },
+            "slide_2": {
+                "id": "slide_2",
+                "title": "4-Pillar Generative Engine Optimization (GEO)",
+                "subtitle": "AI Search Engine Citation Readiness & Breakdown",
+                "category": "2. GEO Pillars",
+                "layout": "bullets",
+                "bullets": seo_slide_2_bullets,
+                "speakerNotes": "Evaluation across evidence density, inverted pyramid, EEAT, and crawlability."
+            },
+            "slide_3": {
+                "id": "slide_3",
+                "title": "Playwright Client Rendering & Hydration Gap",
+                "subtitle": "SSR vs Post-Hydration Content Availability",
+                "category": "3. Rendering Gap",
+                "layout": "bullets",
+                "bullets": seo_slide_3_bullets,
+                "speakerNotes": "Analysis of JavaScript hydration gaps that may prevent AI scrapers from indexing content."
+            },
+            "slide_4": {
+                "id": "slide_4",
+                "title": "AI Scraper & Search Bot Crawlability",
+                "subtitle": "Robots.txt Directives for Leading LLMs",
+                "category": "4. Bot Crawlability",
+                "layout": "bullets",
+                "bullets": seo_slide_4_bullets,
+                "speakerNotes": "Robots.txt status for major AI search engines."
+            },
+            "slide_5": {
+                "id": "slide_5",
+                "title": "Keyword & Semantic Entity Distribution",
+                "subtitle": "High-Intent Keyword Density & Topic Prominence",
+                "category": "5. Keywords & Semantics",
+                "layout": "bullets",
+                "bullets": seo_slide_5_bullets,
+                "speakerNotes": "High opportunity keywords for search traffic and AI answer engines."
+            },
+            "slide_6": {
+                "id": "slide_6",
+                "title": "Strategic SEO & GEO Roadmap",
+                "subtitle": "Actionable Technical Priorities & Schema Optimization",
+                "category": "6. Action Plan",
+                "layout": "bullets",
+                "bullets": seo_slide_6_bullets,
+                "speakerNotes": "High-impact recommendations for immediate ranking improvement."
+            }
+        }
+    }
+
     return {
         "source_type": "seo",
         "source_id": session.id,
@@ -572,6 +973,7 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
             "title": f"SEO - {session.domain}",
             "markdown": doc_markdown
         },
+        "slides": seo_slides_snapshot,
         "scores": {
             "overall": session.overall_score,
             "geo": session.geo_readiness_score,
@@ -582,10 +984,12 @@ async def connect_seo_session(audit_id: str, db: AsyncSession = Depends(get_db))
     }
 
 
-# --- 3. Native Excel (.xlsx) Streaming Endpoints ---
+# --- 3. Native Excel (.xlsx) and PowerPoint (.pptx) Streaming Endpoints ---
 
 def _style_excel_sheet(ws, title: str):
     """Apply Resend-style clean dark/corporate aesthetics to openpyxl worksheets."""
+    if not HAS_OPENPYXL:
+        return
     header_fill = PatternFill(start_color="1E2029", end_color="1E2029", fill_type="solid")
     header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
     thin_border = Border(
@@ -618,6 +1022,11 @@ def _style_excel_sheet(ws, title: str):
 @router.get("/export/research/{session_id}/xlsx", summary="Download native Excel (.xlsx) file for a research session")
 async def export_research_xlsx(session_id: str, db: AsyncSession = Depends(get_db)):
     """Generates and streams a professional, multi-tab Excel workbook for a research session."""
+    if not HAS_OPENPYXL:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Excel export engine (openpyxl) is not installed in the environment."
+        )
     data = await connect_research_session(session_id, db)
     wb_data = data["workbook"]["sheets"]
 
@@ -686,6 +1095,11 @@ async def export_research_xlsx(session_id: str, db: AsyncSession = Depends(get_d
 @router.get("/export/seo/{audit_id}/xlsx", summary="Download native Excel (.xlsx) file for an SEO audit")
 async def export_seo_xlsx(audit_id: str, db: AsyncSession = Depends(get_db)):
     """Generates and streams a professional, multi-tab Excel workbook for an SEO audit."""
+    if not HAS_OPENPYXL:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Excel export engine (openpyxl) is not installed in the environment."
+        )
     data = await connect_seo_session(audit_id, db)
     wb_data = data["workbook"]["sheets"]
 
@@ -763,6 +1177,55 @@ async def export_seo_xlsx(audit_id: str, db: AsyncSession = Depends(get_db)):
     return StreamingResponse(
         output,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.get("/export/{source_type}/{source_id}/pptx", summary="Download native PowerPoint (.pptx) presentation for research or SEO")
+async def export_session_pptx(source_type: str, source_id: str, db: AsyncSession = Depends(get_db)):
+    """Generates and streams a professional 16:9 widescreen PowerPoint pitch deck."""
+    if not HAS_PPTX:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="PowerPoint export engine (python-pptx) is not installed in the environment."
+        )
+
+    if source_type == "research":
+        conn = await connect_research_session(source_id, db)
+    elif source_type == "seo":
+        conn = await connect_seo_session(source_id, db)
+    else:
+        raise HTTPException(status_code=400, detail="Invalid source type. Must be 'research' or 'seo'.")
+
+    slides_data = conn.get("slides", {})
+    raw_title = conn.get("title", f"Presentation_{source_type}_{source_id[:8]}")
+    clean_title = raw_title.replace(" ", "_").replace("/", "_").replace("\\", "_")
+    out = generate_pptx_from_slides(slides_data, clean_title)
+    filename = f"{clean_title}.pptx"
+
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@router.post("/export/custom-pptx", summary="Download custom PowerPoint (.pptx) presentation from slide snapshot")
+async def export_custom_pptx(payload: ExportCustomPptxPayload):
+    """Generates and streams a PowerPoint presentation from user slide edits."""
+    if not HAS_PPTX:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="PowerPoint export engine (python-pptx) is not installed in the environment."
+        )
+
+    clean_title = payload.title.replace(" ", "_").replace("/", "_").replace("\\", "_")
+    out = generate_pptx_from_slides(payload.slides, clean_title)
+    filename = f"{clean_title}.pptx"
+
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f"attachment; filename={filename}"}
     )
 

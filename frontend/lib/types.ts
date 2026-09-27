@@ -293,3 +293,43 @@ export interface YouTubeTranscriptData {
   error?: string;
 }
 
+// ============================================================================
+// Univer Office SDK Slide & Presentation Types
+// ============================================================================
+
+export interface UniverSlideMetric {
+  label: string;
+  value: string | number;
+  change?: string;
+  highlight?: boolean;
+}
+
+export interface UniverSlideQuote {
+  text: string;
+  author: string;
+  channel?: string;
+  permalink?: string;
+}
+
+export interface UniverSlideItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  category: string;
+  layout?: "title" | "split" | "bullets" | "metrics" | "quote" | "table";
+  metrics?: UniverSlideMetric[];
+  bullets?: string[];
+  quote?: UniverSlideQuote;
+  speakerNotes?: string;
+  backgroundColor?: string;
+}
+
+export interface UniverSlideData {
+  id: string;
+  title: string;
+  pageSize?: { width: number; height: number };
+  slideOrder: string[];
+  slides: Record<string, UniverSlideItem>;
+}
+
+
