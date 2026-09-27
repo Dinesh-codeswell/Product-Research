@@ -24,9 +24,28 @@ USER_AGENTS = [
 
 class RedditChannel(BaseChannel):
     name = "reddit"
+    display_name = "Reddit Discussions"
+    category = "social"
+    tier = 0
+    backends = ["direct_api", "ddg_crawler"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking Reddit access."""
+        try:
+            async with httpx.AsyncClient(timeout=4.0, follow_redirects=True) as client:
+                resp = await client.get("https://www.reddit.com/r/technology/top.json?limit=1", headers=self._get_headers())
+                if resp.status_code == 200:
+                    self.active_backend = "direct_api"
+                    return "ok", "Direct Reddit JSON API operational"
+                else:
+                    self.active_backend = "ddg_crawler"
+                    return "warn", f"Reddit returned HTTP {resp.status_code} (Active failover: Live DDG crawler)"
+        except Exception:
+            self.active_backend = "ddg_crawler"
+            return "warn", "Direct Reddit timed out (Active failover: Live DDG crawler)"
 
     def _get_headers(self) -> dict:
         return {

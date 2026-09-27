@@ -16,6 +16,8 @@ export function ChannelSettingsModal({ isOpen, onClose }: ChannelSettingsModalPr
   const [facebookCUser, setFacebookCUser] = useState("");
   const [facebookXs, setFacebookXs] = useState("");
   const [firecrawlApiKey, setFirecrawlApiKey] = useState("");
+  const [exaApiKey, setExaApiKey] = useState("");
+  const [xueqiuCookie, setXueqiuCookie] = useState("");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -34,6 +36,8 @@ export function ChannelSettingsModal({ isOpen, onClose }: ChannelSettingsModalPr
       if (facebookCUser) payload.facebook_c_user = facebookCUser.trim();
       if (facebookXs) payload.facebook_xs = facebookXs.trim();
       if (firecrawlApiKey) payload.firecrawl_api_key = firecrawlApiKey.trim();
+      if (exaApiKey) payload.exa_api_key = exaApiKey.trim();
+      if (xueqiuCookie) payload.xueqiu_cookie = xueqiuCookie.trim();
 
       await saveChannelCredentials(payload);
       setStatusMsg("Credentials stored for this active runtime.");
@@ -181,6 +185,42 @@ export function ChannelSettingsModal({ isOpen, onClose }: ChannelSettingsModalPr
                 className="px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#292d30] text-xs font-mono text-[#ffffff] placeholder-[#464a4d] focus:outline-none focus:border-[#ffffff]"
               />
             </div>
+          </div>
+
+          {/* Exa AI Semantic Search */}
+          <div className="space-y-2 p-4 rounded-[16px] bg-[#000000] border border-[#292d30]">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="font-medium text-[#ffffff]">Exa AI Search API Key</span>
+              <span className="text-[#6e727a]">Optional</span>
+            </div>
+            <p className="text-[11px] font-mono text-[#a1a4a5]">
+              Enables neural semantic web searching for developer documentation, code samples, and deep technical rants.
+            </p>
+            <input
+              type="password"
+              value={exaApiKey}
+              onChange={(e) => setExaApiKey(e.target.value)}
+              placeholder="exa-api-key-xxxxxxxxxxxx"
+              className="w-full px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#292d30] text-xs font-mono text-[#ffffff] placeholder-[#464a4d] focus:outline-none focus:border-[#ffffff]"
+            />
+          </div>
+
+          {/* Xueqiu Finance Session */}
+          <div className="space-y-2 p-4 rounded-[16px] bg-[#000000] border border-[#292d30]">
+            <div className="flex items-center justify-between text-xs font-mono">
+              <span className="font-medium text-[#ffffff]">Xueqiu (雪球) Session Cookie</span>
+              <span className="text-[#6e727a]">Optional</span>
+            </div>
+            <p className="text-[11px] font-mono text-[#a1a4a5]">
+              Provides authenticated market sentiment and stock discussion feeds.
+            </p>
+            <input
+              type="password"
+              value={xueqiuCookie}
+              onChange={(e) => setXueqiuCookie(e.target.value)}
+              placeholder="xq_a_token=...; xq_r_token=..."
+              className="w-full px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#292d30] text-xs font-mono text-[#ffffff] placeholder-[#464a4d] focus:outline-none focus:border-[#ffffff]"
+            />
           </div>
 
           {statusMsg && (

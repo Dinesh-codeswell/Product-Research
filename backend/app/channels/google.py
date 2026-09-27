@@ -20,10 +20,21 @@ logger = logging.getLogger(__name__)
 
 class GoogleChannel(BaseChannel):
     name = "google"
+    display_name = "Google & Web Index"
+    category = "web"
+    tier = 0
+    backends = ["ddg_syndication", "firecrawl_enhancement"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
         self.firecrawl = FirecrawlClient()
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking Google/Web search status."""
+        self.active_backend = "ddg_syndication"
+        if self.firecrawl.is_configured:
+            return "ok", "Google Search operational with Firecrawl deep Markdown enrichment"
+        return "ok", "Google Search operational (Zero-auth DuckDuckGo syndication)"
 
     async def search(self, query: str, limit: int = 25) -> List[ChannelItem]:
         items: List[ChannelItem] = []

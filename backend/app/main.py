@@ -59,6 +59,13 @@ app.include_router(youtube_router, prefix=settings.API_V1_STR)
 async def health_check():
     return {"status": "healthy", "service": "PulseRadar API", "version": "1.0.0"}
 
+@app.get(f"{settings.API_V1_STR}/doctor", tags=["Health"])
+async def api_doctor():
+    """Diagnostic health check across all registered channels."""
+    from app.channels import run_channel_doctor
+    return await run_channel_doctor()
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("app.main:app", host=settings.HOST, port=settings.PORT, reload=settings.DEBUG)

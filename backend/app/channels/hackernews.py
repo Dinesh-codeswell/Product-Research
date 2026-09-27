@@ -9,9 +9,25 @@ logger = logging.getLogger(__name__)
 
 class HackerNewsChannel(BaseChannel):
     name = "hackernews"
+    display_name = "Hacker News Discussions"
+    category = "developer"
+    tier = 0
+    backends = ["algolia_api"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking Algolia HN API."""
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                resp = await client.get("https://hn.algolia.com/api/v1/search?tags=front_page&hitsPerPage=1")
+                if resp.status_code == 200:
+                    self.active_backend = "algolia_api"
+                    return "ok", "Hacker News Algolia API operational (Zero-auth stories & deep comment rants)"
+                return "warn", f"Algolia HN returned HTTP {resp.status_code}"
+        except Exception as e:
+            return "error", f"Algolia HN unreachable: {e}"
 
     async def search(self, query: str, limit: int = 50) -> List[ChannelItem]:
         items: List[ChannelItem] = []

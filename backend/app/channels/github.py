@@ -10,10 +10,29 @@ logger = logging.getLogger(__name__)
 
 class GitHubChannel(BaseChannel):
     name = "github"
+    display_name = "GitHub Issues & Code"
+    category = "developer"
+    tier = 0
+    backends = ["rest_api"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
         self.token = getattr(settings, "GITHUB_TOKEN", "") or os.environ.get("GITHUB_TOKEN", "")
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking GitHub API rate limit status."""
+        try:
+            async with httpx.AsyncClient(timeout=4.0) as client:
+                resp = await client.get("https://api.github.com/rate_limit", headers=self._get_headers())
+                if resp.status_code == 200:
+                    remaining = resp.json().get("resources", {}).get("search", {}).get("remaining", 0)
+                    self.active_backend = "rest_api"
+                    if self.token:
+                        return "ok", f"GitHub API Authenticated ({remaining} search requests remaining)"
+                    return "ok", f"GitHub API Public ({remaining} search requests remaining)"
+                return "warn", f"GitHub API rate limit exhausted (HTTP {resp.status_code})"
+        except Exception as e:
+            return "warn", f"GitHub API probe note: {e}"
 
     def _get_headers(self) -> dict:
         headers = {

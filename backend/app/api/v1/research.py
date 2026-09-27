@@ -55,28 +55,14 @@ def publish_event(session_id: str, stage: str, percent: int, message: str, data:
 
 async def scrape_channel(channel_name: str, query: str, limit: int, subreddits: List[str] = None):
     try:
-        if channel_name == "reddit":
-            ch = RedditChannel()
-            return await ch.search(query=query, limit=limit, subreddits=subreddits)
-        elif channel_name == "youtube":
-            ch = YouTubeChannel()
+        from app.channels import get_channel
+        ch = get_channel(channel_name)
+        if ch:
+            if ch.name == "reddit" and subreddits:
+                return await ch.search(query=query, limit=limit, subreddits=subreddits)
             return await ch.search(query=query, limit=limit)
-        elif channel_name == "hackernews":
-            ch = HackerNewsChannel()
-            return await ch.search(query=query, limit=limit)
-        elif channel_name == "github":
-            ch = GitHubChannel()
-            return await ch.search(query=query, limit=limit)
-        elif channel_name == "twitter":
-            ch = TwitterChannel()
-            return await ch.search(query=query, limit=limit)
-        elif channel_name == "facebook":
-            ch = FacebookChannel()
-            return await ch.search(query=query, limit=limit)
-        elif channel_name in ["google", "web", "duckduckgo"]:
-            from app.channels.google import GoogleChannel
-            ch = GoogleChannel()
-            return await ch.search(query=query, limit=limit)
+        else:
+            logger.warning(f"Unrecognized channel: {channel_name}")
     except Exception as e:
         logger.error(f"Error scraping channel {channel_name}: {e}")
     return []
@@ -512,64 +498,20 @@ async def list_sessions(limit: int = 15, db: AsyncSession = Depends(get_db)):
     res = await db.execute(stmt)
     return res.scalars().all()
 
-# --- Channels Configuration Endpoints ---
+# --- Channels Configuration & Diagnostic Doctor Endpoints ---
+@settings_router.get("/doctor")
+@router.get("/doctor")
+async def get_doctor_report():
+    """Run non-destructive diagnostic health checks across all 13 platforms."""
+    from app.channels import run_channel_doctor
+    return await run_channel_doctor()
+
 @settings_router.get("/channels")
 async def get_channels_status():
-    """Returns the configuration and auth status of all supported platforms."""
-    return {
-        "google": {
-            "name": "Google Search & Web Engine",
-            "tier": "zero-auth",
-            "status": "ready",
-            "description": "High-authority tech articles, blogs, benchmarks, and community guides"
-        },
-        "firecrawl": {
-            "name": "Firecrawl Deep Scraper",
-            "tier": "authenticated" if settings.FIRECRAWL_API_KEY else "optional",
-            "status": "configured" if settings.FIRECRAWL_API_KEY else "ready",
-            "configured": bool(settings.FIRECRAWL_API_KEY),
-            "description": "Converts discovered web articles into clean, LLM-ready Markdown"
-        },
-        "reddit": {
-            "name": "Reddit",
-            "tier": "zero-auth",
-            "status": "ready",
-            "description": "Multi-subreddit sweep and community rants"
-        },
-        "youtube": {
-            "name": "YouTube",
-            "tier": "zero-auth",
-            "status": "ready",
-            "description": "Timestamped video reviews & transcript chunks"
-        },
-        "hackernews": {
-            "name": "Hacker News",
-            "tier": "zero-auth",
-            "status": "ready",
-            "description": "High-signal developer stories and comment rants via Algolia"
-        },
-        "github": {
-            "name": "GitHub Issues",
-            "tier": "zero-auth" if not settings.GITHUB_TOKEN else "authenticated",
-            "status": "ready",
-            "configured": bool(settings.GITHUB_TOKEN),
-            "description": "Real open-source bug reports, discussions, and feature requests"
-        },
-        "twitter": {
-            "name": "Twitter / X",
-            "tier": "authenticated" if (settings.TWITTER_AUTH_TOKEN or settings.TWITTER_BEARER_TOKEN) else "fallback",
-            "status": "ready",
-            "configured": bool((settings.TWITTER_AUTH_TOKEN and settings.TWITTER_CT0) or settings.TWITTER_BEARER_TOKEN),
-            "description": "Live tech tweets, hot takes, and developer discussions"
-        },
-        "facebook": {
-            "name": "Facebook",
-            "tier": "authenticated" if (settings.FACEBOOK_C_USER and settings.FACEBOOK_XS) else "fallback",
-            "status": "ready",
-            "configured": bool(settings.FACEBOOK_C_USER and settings.FACEBOOK_XS),
-            "description": "Tech founder groups and SaaS community reviews"
-        }
-    }
+    """Returns the configuration and auth status of all supported platforms via Doctor."""
+    from app.channels import run_channel_doctor
+    doc = await run_channel_doctor()
+    return doc.get("channels", {})
 
 @settings_router.post("/channels")
 async def update_channel_credentials(creds: Dict[str, str]):
@@ -588,5 +530,9 @@ async def update_channel_credentials(creds: Dict[str, str]):
         settings.FACEBOOK_XS = creds["facebook_xs"]
     if "firecrawl_api_key" in creds:
         settings.FIRECRAWL_API_KEY = creds["firecrawl_api_key"].strip()
+    if "exa_api_key" in creds:
+        setattr(settings, "EXA_API_KEY", creds["exa_api_key"].strip())
+    if "xueqiu_cookie" in creds:
+        setattr(settings, "XUEQIU_COOKIE", creds["xueqiu_cookie"].strip())
 
     return {"status": "success", "message": "Channel credentials updated successfully."}

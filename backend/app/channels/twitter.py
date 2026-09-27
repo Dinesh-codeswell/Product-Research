@@ -19,12 +19,27 @@ logger = logging.getLogger(__name__)
 
 class TwitterChannel(BaseChannel):
     name = "twitter"
+    display_name = "Twitter / X Discussions"
+    category = "social"
+    tier = 1
+    backends = ["api_bearer", "cookie_auth", "ddg_crawler"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
         self.auth_token = getattr(settings, "TWITTER_AUTH_TOKEN", "") or os.environ.get("TWITTER_AUTH_TOKEN", "")
         self.ct0 = getattr(settings, "TWITTER_CT0", "") or os.environ.get("TWITTER_CT0", "")
         self.bearer_token = getattr(settings, "TWITTER_BEARER_TOKEN", "") or os.environ.get("TWITTER_BEARER_TOKEN", "")
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking Twitter/X configuration."""
+        if self.bearer_token:
+            self.active_backend = "api_bearer"
+            return "ok", "Twitter Official API v2 Bearer Token active"
+        if self.auth_token and self.ct0:
+            self.active_backend = "cookie_auth"
+            return "ok", "Twitter Web Session Cookies (auth_token & ct0) configured"
+        self.active_backend = "ddg_crawler"
+        return "warn", "Twitter running in zero-auth live crawler mode (Add tokens/cookies in settings for deep search)"
 
     async def search(self, query: str, limit: int = 40) -> List[ChannelItem]:
         items: List[ChannelItem] = []

@@ -1,4 +1,4 @@
-import { ResearchSession, StartResearchPayload, YouTubeTranscriptData, UniverSlideData } from "./types";
+import { ResearchSession, StartResearchPayload, YouTubeTranscriptData, UniverSlideData, DoctorReport } from "./types";
 
 export function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -340,4 +340,23 @@ export async function fetchYouTubeTranscript(
   }
   return res.json();
 }
+
+// ============================================================================
+// Multi-Channel Diagnostic Doctor Client
+// ============================================================================
+
+export async function getDoctorReport(): Promise<DoctorReport> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/doctor`, { cache: "no-store" });
+    if (!res.ok) {
+      throw new Error(`Failed to fetch doctor report: ${res.statusText}`);
+    }
+    return res.json();
+  } catch (err) {
+    console.error("Doctor report fetch error:", err);
+    throw err;
+  }
+}
+
 

@@ -162,10 +162,10 @@ export default function HomePage() {
               <span className="text-[11px] font-mono uppercase tracking-wider">Syndication</span>
             </div>
             <div className="text-2xl sm:text-3xl font-sans font-semibold text-[#ffffff] tracking-tight">
-              7 Channels
+              13 Channels
             </div>
             <p className="text-xs text-[#a1a4a5] font-sans">
-              Reddit, Twitter/X, Google, YouTube, HN &amp; GitHub
+              Reddit, X, YouTube, HN, GitHub, V2EX, Bilibili, LinkedIn &amp; Xueqiu
             </p>
           </div>
 

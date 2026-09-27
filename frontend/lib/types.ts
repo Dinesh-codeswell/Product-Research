@@ -332,4 +332,24 @@ export interface UniverSlideData {
   slides: Record<string, UniverSlideItem>;
 }
 
+export interface DoctorChannelInfo {
+  id: string;
+  display_name: string;
+  category: "developer" | "social" | "video" | "web" | "business" | "finance";
+  tier: number;
+  status: "ok" | "warn" | "error";
+  message: string;
+  backends: string[];
+  active_backend?: string;
+}
+
+export interface DoctorReport {
+  total_channels: number;
+  ok_channels: number;
+  warn_channels: number;
+  error_channels: number;
+  channels: Record<string, DoctorChannelInfo>;
+}
+
+
 

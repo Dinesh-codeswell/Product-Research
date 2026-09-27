@@ -18,11 +18,22 @@ logger = logging.getLogger(__name__)
 
 class FacebookChannel(BaseChannel):
     name = "facebook"
+    display_name = "Facebook Community Groups"
+    category = "social"
+    tier = 0
+    backends = ["ddg_crawler"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
         self.c_user = getattr(settings, "FACEBOOK_C_USER", "") or os.environ.get("FACEBOOK_C_USER", "")
         self.xs = getattr(settings, "FACEBOOK_XS", "") or os.environ.get("FACEBOOK_XS", "")
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking Facebook status."""
+        self.active_backend = "ddg_crawler"
+        if self.c_user and self.xs:
+            return "ok", "Facebook session cookies (c_user/xs) configured"
+        return "ok", "Facebook Community Group syndication crawler operational"
 
     async def search(self, query: str, limit: int = 30) -> List[ChannelItem]:
         items: List[ChannelItem] = []

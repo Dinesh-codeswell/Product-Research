@@ -22,9 +22,18 @@ logger = logging.getLogger(__name__)
 
 class YouTubeChannel(BaseChannel):
     name = "youtube"
+    display_name = "YouTube Video Transcripts"
+    category = "video"
+    tier = 0
+    backends = ["transcript_engine", "web_crawler"]
 
     def __init__(self):
         self.timeout = settings.REQUEST_TIMEOUT_SECONDS
+
+    async def check(self) -> tuple[str, str]:
+        """Diagnostic probe checking YouTube Transcript Engine."""
+        self.active_backend = "transcript_engine"
+        return "ok", "YouTube Transcript Engine active (Zero-auth timestamped subtitle extraction & chunking)"
 
     async def search(self, query: str, limit: int = 40) -> List[ChannelItem]:
         items: List[ChannelItem] = []

@@ -18,50 +18,87 @@ import {
   ChevronRight,
   Monitor,
   Layers,
-  Globe
+  Globe,
+  BookOpen,
+  TrendingUp,
+  Tv,
+  Briefcase,
+  Activity,
+  CheckCircle2,
+  CheckSquare,
+  Square,
+  HelpCircle
 } from "lucide-react";
 import { startResearch } from "@/lib/api";
 import { ChannelSettingsModal } from "@/components/ChannelSettingsModal";
 import { BrowserApprovalModal } from "@/components/BrowserApprovalModal";
+import { DiagnosticDoctorModal } from "@/components/DiagnosticDoctorModal";
 
-const AVAILABLE_CHANNELS = [
-  { id: "google", label: "Google / Web", icon: Globe, domain: "google.com" },
-  { id: "reddit", label: "Reddit", icon: MessageSquare, domain: "reddit.com" },
-  { id: "youtube", label: "YouTube", icon: Youtube, domain: "youtube.com" },
-  { id: "twitter", label: "Twitter / X", icon: Twitter, domain: "x.com" },
-  { id: "hackernews", label: "Hacker News", icon: Terminal, domain: "news.ycombinator.com" },
-  { id: "github", label: "GitHub", icon: Github, domain: "github.com" },
-  { id: "facebook", label: "Facebook", icon: Users, domain: "facebook.com" },
+export interface ChannelDef {
+  id: string;
+  label: string;
+  icon: any;
+  domain: string;
+  category: "dev" | "social" | "video" | "web" | "biz_fin";
+  badge: string;
+  tier: number;
+}
+
+const ALL_AVAILABLE_CHANNELS: ChannelDef[] = [
+  // Developer & Code
+  { id: "hackernews", label: "Hacker News", icon: Terminal, domain: "news.ycombinator.com", category: "dev", badge: "Zero-Auth", tier: 0 },
+  { id: "github", label: "GitHub Issues", icon: Github, domain: "github.com", category: "dev", badge: "Zero-Auth", tier: 0 },
+  { id: "v2ex", label: "V2EX Community", icon: MessageSquare, domain: "v2ex.com", category: "dev", badge: "Zero-Auth", tier: 0 },
+  // Social & Community
+  { id: "reddit", label: "Reddit", icon: MessageSquare, domain: "reddit.com", category: "social", badge: "Zero-Auth", tier: 0 },
+  { id: "twitter", label: "Twitter / X", icon: Twitter, domain: "x.com", category: "social", badge: "Session/Key", tier: 1 },
+  { id: "facebook", label: "Facebook Groups", icon: Users, domain: "facebook.com", category: "social", badge: "Zero-Auth", tier: 0 },
+  // Video & Multimedia
+  { id: "youtube", label: "YouTube Transcripts", icon: Youtube, domain: "youtube.com", category: "video", badge: "Zero-Auth", tier: 0 },
+  { id: "bilibili", label: "Bilibili Reviews", icon: Tv, domain: "bilibili.com", category: "video", badge: "Zero-Auth", tier: 0 },
+  // Web & Semantic Search
+  { id: "google", label: "Google / Web", icon: Globe, domain: "google.com", category: "web", badge: "Zero-Auth", tier: 0 },
+  { id: "web", label: "Jina Web Reader", icon: BookOpen, domain: "r.jina.ai", category: "web", badge: "Markdown", tier: 0 },
+  { id: "exa", label: "Exa Neural Search", icon: Sparkles, domain: "exa.ai", category: "web", badge: "Semantic", tier: 1 },
+  // Business & Finance
+  { id: "linkedin", label: "LinkedIn B2B", icon: Briefcase, domain: "linkedin.com", category: "biz_fin", badge: "B2B Pulse", tier: 0 },
+  { id: "xueqiu", label: "Xueqiu Finance", icon: TrendingUp, domain: "xueqiu.com", category: "biz_fin", badge: "Market Sentiment", tier: 0 },
 ];
+
+const RECOMMENDED_CHANNELS = ["google", "reddit", "youtube", "twitter", "hackernews", "v2ex", "github"];
 
 export function QueryLauncher() {
   const router = useRouter();
 
   const [query, setQuery] = useState("");
-  const [channels, setChannels] = useState<string[]>([
-    "google",
-    "reddit",
-    "youtube",
-    "twitter",
-    "hackernews",
-    "github",
-  ]);
+  const [channels, setChannels] = useState<string[]>(RECOMMENDED_CHANNELS);
   const [sampleSize, setSampleSize] = useState<number>(80);
   const [subreddits, setSubreddits] = useState<string>("");
   const [executionMode, setExecutionMode] = useState<"focus" | "browser">("focus");
+  const [channelFilter, setChannelFilter] = useState<string>("all");
+  
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isDoctorOpen, setIsDoctorOpen] = useState(false);
 
-  const toggleChannel = (channel: string) => {
-    if (channels.includes(channel)) {
+  const toggleChannel = (channelId: string) => {
+    if (channels.includes(channelId)) {
       if (channels.length > 1) {
-        setChannels(channels.filter((c) => c !== channel));
+        setChannels(channels.filter((c) => c !== channelId));
       }
     } else {
-      setChannels([...channels, channel]);
+      setChannels([...channels, channelId]);
     }
+  };
+
+  const selectAllChannels = () => {
+    setChannels(ALL_AVAILABLE_CHANNELS.map(c => c.id));
+  };
+
+  const selectRecommendedChannels = () => {
+    setChannels(RECOMMENDED_CHANNELS);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -69,7 +106,6 @@ export function QueryLauncher() {
     if (!query.trim()) return;
 
     if (executionMode === "browser") {
-      // Prompt for explicit user approval before spawning browser
       setIsApprovalOpen(true);
     } else {
       doLaunch("focus", false);
@@ -103,107 +139,128 @@ export function QueryLauncher() {
     }
   };
 
+  const displayedChannels = channelFilter === "all"
+    ? ALL_AVAILABLE_CHANNELS
+    : ALL_AVAILABLE_CHANNELS.filter(c => c.category === channelFilter);
+
   return (
     <div className="w-full space-y-12">
-      {/* Editorial Hero Section (Domaine Serif + 3D Wireframe Cube) */}
+      {/* Editorial Hero Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center pt-4 sm:pt-8">
         <div className="lg:col-span-8 space-y-6">
-          {/* Resend Hero Announcement Pill */}
           <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-transparent border border-[#292d30] text-xs font-sans text-[#f0f0f0] hover:border-[#ffffff]/50 transition-colors">
             <span className="h-1.5 w-1.5 rounded-full bg-[#9281f7]" />
-            <span className="font-mono text-[11px] text-[#9281f7]">v1.2</span>
+            <span className="font-mono text-[11px] text-[#9281f7]">v2.0</span>
             <span className="text-[#a1a4a5]">•</span>
-            <span>Multi-channel intelligence & live browser control</span>
+            <span>13 Intelligence Channels • Agent Reach Core • Live CDP</span>
             <ChevronRight className="h-3 w-3 text-[#a1a4a5]" />
           </div>
 
-          {/* Domaine Editorial Display Headline */}
-          <h1 className="font-serif text-4xl sm:text-6xl lg:text-7xl font-normal text-[#ffffff] tracking-[-0.01em] leading-[1.05]">
-            Customer truth, <br />
-            <span className="italic text-[#f0f0f0]">extracted from the void.</span>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-serif font-normal text-[#ffffff] tracking-tight leading-[1.08]">
+            Discover real customer pain before writing a single line of code.
           </h1>
 
           <p className="text-base sm:text-lg font-sans text-[#a1a4a5] max-w-2xl leading-relaxed">
-            Sweep verbatim discussions across Reddit, YouTube transcripts, Twitter/X, Hacker News, and GitHub issues. Choose between silent Focus Mode or Live Interactive Browser Agent control.
+            Autonomous multi-channel research harvesting verbatim friction signals across Reddit, Twitter, Hacker News, YouTube transcripts, GitHub, V2EX, and B2B networks. Grouped by mathematical density clustering into actionable PRDs and pitch decks.
           </p>
         </div>
 
-        {/* Sculptural Black 3D Cube Anchor */}
-        <div className="lg:col-span-4 flex items-center justify-center lg:justify-end">
-          <div className="relative w-48 h-48 sm:w-56 sm:h-56 flex items-center justify-center">
-            {/* Minimalist Isometric Cube in pure black with hairline edges */}
-            <div className="relative w-36 h-36 border border-[#292d30] rounded-[16px] bg-[#000000] rotate-12 transition-transform duration-700 hover:rotate-6 shadow-subtle flex flex-col justify-between p-4 group">
-              <div className="flex items-center justify-between text-[11px] font-mono text-[#a1a4a5]">
-                <div className="flex items-center gap-1.5">
-                  <span className="h-1.5 w-1.5 rounded-full bg-[#3ad389]" />
-                  <span>{executionMode === "browser" ? "BROWSER" : "FOCUS"}</span>
-                </div>
-                <span className="text-[#9281f7]">7 CHANNELS</span>
-              </div>
+        {/* 3D Wireframe Visual Hero Cue */}
+        <div className="lg:col-span-4 hidden lg:flex justify-center items-center">
+          <div className="w-64 h-64 rounded-[24px] border border-[#292d30] bg-[#000000] p-6 relative flex flex-col justify-between shadow-subtle group hover:border-[#9281f7]/50 transition-colors">
+            <div className="flex items-center justify-between text-xs font-mono text-[#a1a4a5]">
+              <span>CLUSTER MATRIX</span>
+              <span className="text-[#3ad389] flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#3ad389] animate-pulse" />
+                Live Doctor
+              </span>
+            </div>
 
-              <div className="space-y-1 font-mono text-xs">
-                <div className="text-[#6e727a] text-[10px]">CURRENT HARVEST</div>
-                <div className="text-[#ffffff] font-medium tracking-tight">160 signals / sweep</div>
-                <div className="text-[#9281f7] text-[11px] truncate">@verbatim_quotes</div>
+            <div className="space-y-2 font-mono text-xs text-[#6e727a]">
+              <div className="flex justify-between">
+                <span>// Channels Active</span>
+                <span className="text-[#ffffff]">{channels.length} Selected</span>
               </div>
-
-              <div className="flex items-center justify-between pt-2 border-t border-[#292d30] text-[10px] font-mono text-[#6e727a]">
-                <span>ZERO-AUTH</span>
-                <span className="h-1 w-1 rounded-full bg-[#9281f7]" />
-                <span>AGENT-READY</span>
+              <div className="flex justify-between">
+                <span>// Algolia + V2EX</span>
+                <span className="text-[#3ad389]">Zero-Auth</span>
+              </div>
+              <div className="flex justify-between">
+                <span>// Jina Reader</span>
+                <span className="text-[#3b9eff]">r.jina.ai</span>
+              </div>
+              <div className="flex justify-between">
+                <span>// Office Decks</span>
+                <span className="text-[#ff9592]">16:9 .pptx</span>
               </div>
             </div>
 
-            {/* Ghost background plane */}
-            <div className="absolute inset-0 -z-10 border border-[#292d30]/40 rounded-[24px] rotate-[-6deg] pointer-events-none" />
+            <div className="pt-3 border-t border-[#292d30] flex items-center justify-between text-[11px] font-mono text-[#9281f7]">
+              <span>DBSCAN Epsilon 0.42</span>
+              <span>100% Verifiable</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Search & Ingestion Console (16px Card, 1px #292d30 Border) */}
-      <div className="p-6 sm:p-8 rounded-[16px] bg-[#000000] border border-[#292d30] space-y-6">
-        {/* Execution Mode Selector Bar */}
-        <div className="flex items-center justify-between border-b border-[#292d30] pb-4">
+      {/* Main Research Console Card */}
+      <div className="w-full rounded-[16px] bg-[#000000] border border-[#292d30] p-6 sm:p-8 space-y-6 shadow-subtle">
+        {/* Mode Selector & Diagnostics Pill Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#292d30] pb-4">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-[#a1a4a5] uppercase tracking-wider mr-1">
-              Mode:
+            <span className="text-xs font-mono uppercase tracking-wider text-[#a1a4a5] mr-2">
+              Execution Mode:
             </span>
-
-            {/* Focus Mode Pill */}
-            <button
-              type="button"
-              onClick={() => setExecutionMode("focus")}
-              className={`px-3 py-1.5 rounded-[6px] text-xs font-mono flex items-center gap-2 transition-all ${
-                executionMode === "focus"
-                  ? "bg-[#000000] text-[#ffffff] border border-[#ffffff]"
-                  : "bg-[#000000] text-[#a1a4a5] border border-[#292d30] hover:text-[#ffffff]"
-              }`}
-            >
-              <Layers className="h-3.5 w-3.5" />
-              <span>Focus Mode (Silent Background)</span>
-            </button>
-
-            {/* Live Browser Mode Pill */}
-            <button
-              type="button"
-              onClick={() => setExecutionMode("browser")}
-              className={`px-3 py-1.5 rounded-[6px] text-xs font-mono flex items-center gap-2 transition-all ${
-                executionMode === "browser"
-                  ? "bg-[#000000] text-[#ffffff] border border-[#3b9eff] shadow-subtle"
-                  : "bg-[#000000] text-[#a1a4a5] border border-[#292d30] hover:text-[#ffffff]"
-              }`}
-            >
-              <Monitor className="h-3.5 w-3.5 text-[#9281f7]" />
-              <span>Live Browser Mode (Agent In Control)</span>
-              <span className="h-1.5 w-1.5 rounded-full bg-[#3ad389] animate-pulse" />
-            </button>
+            <div className="inline-flex rounded-[6px] border border-[#292d30] p-0.5 bg-[#000000]">
+              <button
+                type="button"
+                onClick={() => setExecutionMode("focus")}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-xs font-sans font-medium transition-all ${
+                  executionMode === "focus"
+                    ? "bg-[#ffffff] text-[#000000] shadow-sm"
+                    : "text-[#a1a4a5] hover:text-[#ffffff]"
+                }`}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                <span>Focus (Fast APIs)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setExecutionMode("browser")}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-[4px] text-xs font-sans font-medium transition-all ${
+                  executionMode === "browser"
+                    ? "bg-[#ffffff] text-[#000000] shadow-sm"
+                    : "text-[#a1a4a5] hover:text-[#ffffff]"
+                }`}
+              >
+                <Monitor className="h-3.5 w-3.5" />
+                <span>Live Browser Stream</span>
+              </button>
+            </div>
           </div>
 
-          <span className="hidden sm:inline-block text-[11px] font-mono text-[#6e727a]">
-            {executionMode === "browser"
-              ? "Spawns visible Chromium session + live screencast"
-              : "Parallel headless APIs, stays quietly on site"}
-          </span>
+          <div className="flex items-center gap-2">
+            {/* System Doctor Diagnostic Button */}
+            <button
+              type="button"
+              onClick={() => setIsDoctorOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-[#3ad389] hover:text-[#ffffff] bg-[#3ad389]/10 border border-[#3ad389]/30 hover:border-[#3ad389] px-2.5 py-1 rounded-[6px] transition-colors"
+              title="Inspect upstream channel reachability and failover chains"
+            >
+              <Activity className="h-3.5 w-3.5" />
+              <span>Diagnostic Doctor</span>
+            </button>
+
+            {/* Auth & Cookies Modal Trigger */}
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-[#a1a4a5] hover:text-[#ffffff] bg-[#000000] border border-[#292d30] hover:border-[#ffffff]/40 px-2.5 py-1 rounded-[6px] transition-colors"
+            >
+              <Key className="h-3 w-3 text-[#9281f7]" />
+              <span>Platform Auth</span>
+            </button>
+          </div>
         </div>
 
         {/* Search Query Input */}
@@ -213,7 +270,7 @@ export function QueryLauncher() {
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-[#6e727a]" />
               <input
                 type="text"
-                placeholder="Topic, product, or competitor debate (e.g. 'Supabase vs Firebase', 'Doom Day', 'Messi vs Ronaldo')..."
+                placeholder="Topic, product, or competitor debate (e.g. 'Supabase vs Firebase', 'Next.js App Router', 'Linear vs Jira')..."
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 disabled={isLoading}
@@ -251,20 +308,28 @@ export function QueryLauncher() {
           )}
         </form>
 
-        {/* Configuration Bar (Channels & Sample Size) */}
+        {/* Channels Configuration & Category Filter */}
         <div className="space-y-4 pt-4 border-t border-[#292d30]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <span className="text-xs font-mono uppercase tracking-wider text-[#a1a4a5]">
-                Harvest Channels ({channels.length}/6)
+                Harvest Sources ({channels.length}/{ALL_AVAILABLE_CHANNELS.length})
               </span>
+              <span className="text-[#6e727a]">•</span>
               <button
                 type="button"
-                onClick={() => setIsSettingsOpen(true)}
-                className="inline-flex items-center gap-1.5 text-xs font-sans text-[#a1a4a5] hover:text-[#ffffff] transition-colors"
+                onClick={selectAllChannels}
+                className="text-[11px] font-mono text-[#9281f7] hover:underline"
               >
-                <Key className="h-3 w-3 text-[#9281f7]" />
-                <span className="underline underline-offset-2">Auth & Cookies</span>
+                All 13
+              </button>
+              <span className="text-[#6e727a]">•</span>
+              <button
+                type="button"
+                onClick={selectRecommendedChannels}
+                className="text-[11px] font-mono text-[#a1a4a5] hover:text-[#ffffff]"
+              >
+                Recommended (7)
               </button>
             </div>
 
@@ -285,9 +350,34 @@ export function QueryLauncher() {
             </div>
           </div>
 
-          {/* 7 Channel Toggles */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
-            {AVAILABLE_CHANNELS.map((ch) => {
+          {/* Category Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+            {[
+              { id: "all", label: "All Sources" },
+              { id: "dev", label: "Developer & Code" },
+              { id: "social", label: "Social & Forums" },
+              { id: "video", label: "Video Reviews" },
+              { id: "web", label: "Web & Search" },
+              { id: "biz_fin", label: "B2B & Finance" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setChannelFilter(tab.id)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-mono transition-colors whitespace-nowrap ${
+                  channelFilter === tab.id
+                    ? "bg-[#292d30] text-[#ffffff] font-medium"
+                    : "text-[#6e727a] hover:text-[#a1a4a5]"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* 13 Channel Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+            {displayedChannels.map((ch) => {
               const Icon = ch.icon;
               const isSelected = channels.includes(ch.id);
 
@@ -296,27 +386,40 @@ export function QueryLauncher() {
                   key={ch.id}
                   type="button"
                   onClick={() => toggleChannel(ch.id)}
-                  className={`flex items-center justify-between py-2 px-3 rounded-[6px] border text-xs font-mono transition-all ${
+                  className={`flex flex-col justify-between p-2.5 rounded-[8px] border text-left transition-all ${
                     isSelected
                       ? "bg-[#000000] border-[#ffffff] text-[#ffffff]"
                       : "bg-[#000000] border-[#292d30] text-[#6e727a] hover:border-[#464a4d] hover:text-[#a1a4a5]"
                   }`}
                 >
-                  <div className="flex items-center gap-2 truncate">
-                    <Icon className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{ch.label}</span>
+                  <div className="flex items-center justify-between w-full mb-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Icon className="h-3.5 w-3.5 shrink-0" />
+                      <span className="text-xs font-mono truncate font-medium">
+                        {ch.label}
+                      </span>
+                    </div>
+                    <span
+                      className={`h-2 w-2 rounded-full shrink-0 ${
+                        isSelected ? "bg-[#3ad389]" : "bg-[#292d30]"
+                      }`}
+                    />
                   </div>
-                  <span
-                    className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                      isSelected ? "bg-[#3ad389]" : "bg-[#292d30]"
-                    }`}
-                  />
+
+                  <div className="flex items-center justify-between w-full text-[10px] font-mono text-[#6e727a]">
+                    <span className="truncate">{ch.domain}</span>
+                    <span className={`px-1 py-0.2 rounded text-[9px] ${
+                      ch.tier === 0 ? "text-[#3ad389]" : "text-[#3b9eff]"
+                    }`}>
+                      {ch.badge}
+                    </span>
+                  </div>
                 </button>
               );
             })}
           </div>
 
-          {/* Optional targeted subreddits */}
+          {/* Optional targeted subreddits if Reddit selected */}
           {channels.includes("reddit") && (
             <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-2 text-xs font-mono text-[#a1a4a5]">
               <span className="shrink-0 text-[#6e727a]">Target Subreddits (optional):</span>
@@ -341,9 +444,16 @@ export function QueryLauncher() {
         onFallbackFocus={() => doLaunch("focus", false)}
       />
 
+      {/* Channel Auth & Cookies Modal */}
       <ChannelSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+      />
+
+      {/* Diagnostic Doctor Telemetry Modal */}
+      <DiagnosticDoctorModal
+        isOpen={isDoctorOpen}
+        onClose={() => setIsDoctorOpen(false)}
       />
     </div>
   );
