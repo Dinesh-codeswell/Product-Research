@@ -49,6 +49,7 @@ class RawFeedbackSchema(BaseModel):
     content: str
     author: Optional[str] = None
     engagement_score: int
+    raw_metadata: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

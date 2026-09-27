@@ -1,4 +1,4 @@
-import { ResearchSession, StartResearchPayload } from "./types";
+import { ResearchSession, StartResearchPayload, YouTubeTranscriptData } from "./types";
 
 export function getBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
@@ -286,6 +286,30 @@ export async function deleteOfficeDocument(docId: string): Promise<{ status: str
   });
   if (!res.ok) {
     throw new Error(`Failed to delete document: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+// ============================================================================
+// YouTube Transcript API Client
+// ============================================================================
+
+export async function fetchYouTubeTranscript(
+  urlOrId: string,
+  languages?: string[]
+): Promise<YouTubeTranscriptData> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/youtube/transcript`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      url_or_id: urlOrId,
+      languages: languages || ["en", "en-US", "en-GB"],
+    }),
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Failed to fetch transcript: ${res.statusText} ${errorText}`);
   }
   return res.json();
 }

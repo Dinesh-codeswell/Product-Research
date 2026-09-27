@@ -12,6 +12,7 @@ from app.api.v1.research import router as research_router, settings_router
 from app.api.v1.seo import router as seo_router
 from app.api.v1.models import router as models_router
 from app.api.v1.office import router as office_router
+from app.api.v1.youtube import router as youtube_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,6 +51,7 @@ app.include_router(settings_router, prefix=settings.API_V1_STR)
 app.include_router(seo_router, prefix=settings.API_V1_STR)
 app.include_router(models_router, prefix=settings.API_V1_STR)
 app.include_router(office_router, prefix=settings.API_V1_STR)
+app.include_router(youtube_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/health", tags=["Health"])

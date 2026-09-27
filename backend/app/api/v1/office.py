@@ -272,33 +272,71 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
             row_counter += 1
 
     # Structured Univer Workbook Payload
+    sheet_order = ["sheet_summary", "sheet_clusters", "sheet_quotes"]
+    sheets_dict = {
+        "sheet_summary": {
+            "id": "sheet_summary",
+            "name": "Executive Summary",
+            "cellData": summary_cells,
+            "rowCount": 30,
+            "columnCount": 10
+        },
+        "sheet_clusters": {
+            "id": "sheet_clusters",
+            "name": "Insight Clusters",
+            "cellData": cluster_cells,
+            "rowCount": max(50, len(clusters_data) + 10),
+            "columnCount": 10
+        },
+        "sheet_quotes": {
+            "id": "sheet_quotes",
+            "name": "Verified Quotes & Citations",
+            "cellData": quotes_cells,
+            "rowCount": max(50, row_counter + 10),
+            "columnCount": 10
+        }
+    }
+
+    # Sheet 4: YouTube Video Transcripts (if video signals present)
+    yt_feedbacks = [
+        f for f in session.feedbacks
+        if f.channel.lower() == "youtube" or "youtube.com" in f.url or "youtu.be" in f.url
+    ]
+    if yt_feedbacks:
+        yt_cells = {
+            "0": {
+                "0": {"v": "Video Title & Reference", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+                "1": {"v": "Timestamp", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+                "2": {"v": "Spoken Dialogue / Transcript Cue", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+                "3": {"v": "Speaker / Channel", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+                "4": {"v": "Engagement", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+                "5": {"v": "Video Timestamp Link", "s": {"bold": True, "bg": "#1e2029", "color": "#ffffff"}},
+            }
+        }
+        for y_idx, yf in enumerate(yt_feedbacks, start=1):
+            ts = (yf.raw_metadata or {}).get("timestamp") or "00:00"
+            yt_cells[str(y_idx)] = {
+                "0": {"v": yf.title or f"YouTube Video ({yf.external_id})", "s": {"bold": True}},
+                "1": {"v": ts, "s": {"color": "#ff6465"}},
+                "2": {"v": yf.content},
+                "3": {"v": yf.author or "YouTube Contributor"},
+                "4": {"v": yf.engagement_score or 0},
+                "5": {"v": yf.url},
+            }
+        sheet_order.append("sheet_transcripts")
+        sheets_dict["sheet_transcripts"] = {
+            "id": "sheet_transcripts",
+            "name": "YouTube Video Transcripts",
+            "cellData": yt_cells,
+            "rowCount": max(50, len(yt_feedbacks) + 10),
+            "columnCount": 10
+        }
+
     workbook_snapshot = {
         "id": f"wb_research_{session.id}",
         "name": f"Research: {session.query[:32]}",
-        "sheetOrder": ["sheet_summary", "sheet_clusters", "sheet_quotes"],
-        "sheets": {
-            "sheet_summary": {
-                "id": "sheet_summary",
-                "name": "Executive Summary",
-                "cellData": summary_cells,
-                "rowCount": 30,
-                "columnCount": 10
-            },
-            "sheet_clusters": {
-                "id": "sheet_clusters",
-                "name": "Insight Clusters",
-                "cellData": cluster_cells,
-                "rowCount": max(50, len(clusters_data) + 10),
-                "columnCount": 10
-            },
-            "sheet_quotes": {
-                "id": "sheet_quotes",
-                "name": "Verified Quotes & Citations",
-                "cellData": quotes_cells,
-                "rowCount": max(50, row_counter + 10),
-                "columnCount": 10
-            }
-        }
+        "sheetOrder": sheet_order,
+        "sheets": sheets_dict
     }
 
     # Markdown Document Payload for Word/Doc Mode
@@ -322,6 +360,13 @@ async def connect_research_session(session_id: str, db: AsyncSession = Depends(g
             doc_markdown += "**Direct Evidence Quotes:**\n"
             for q in c["quotes"][:3]:
                 doc_markdown += f"> \"{q['quote_text']}\"\n> — *{q['source_author']} ({q['source_channel'].upper()})*\n\n"
+
+    if yt_feedbacks:
+        doc_markdown += "\n## 3. Spoken YouTube Video Transcripts & Subtitles\n"
+        for yf in yt_feedbacks[:8]:
+            ts = (yf.raw_metadata or {}).get("timestamp") or "00:00"
+            doc_markdown += f"- **[{ts}] [{yf.title or 'YouTube Video'}]({yf.url})**\n"
+            doc_markdown += f"  > \"{yf.content}\"\n\n"
 
     return {
         "source_type": "research",

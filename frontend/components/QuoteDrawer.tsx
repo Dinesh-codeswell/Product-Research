@@ -16,6 +16,7 @@ import {
   Globe
 } from "lucide-react";
 import { InsightCluster, EvidenceQuote } from "@/lib/types";
+import { YouTubeTranscriptModal } from "./YouTubeTranscriptModal";
 
 interface QuoteDrawerProps {
   cluster: InsightCluster | null;
@@ -24,6 +25,7 @@ interface QuoteDrawerProps {
 
 export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string } | null>(null);
 
   if (!cluster) return null;
 
@@ -119,6 +121,24 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
 
                 {/* Action Buttons */}
                 <div className="pt-2 border-t border-[#292d30] flex items-center justify-end gap-2 text-xs font-mono">
+                  {(quote.source_channel.toLowerCase() === "youtube" ||
+                    quote.permalink.includes("youtube.com") ||
+                    quote.permalink.includes("youtu.be")) && (
+                    <button
+                      onClick={() =>
+                        setSelectedTranscriptVideo({
+                          url: quote.permalink,
+                          title: `Video Evidence: ${cluster.title}`,
+                        })
+                      }
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
+                      title="View full spoken transcript and cue timings"
+                    >
+                      <Youtube className="h-3 w-3" />
+                      <span>Transcript</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => handleCopy(quote)}
                     className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
@@ -146,6 +166,13 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
           })
         )}
       </div>
+
+      {/* YouTube Transcript Modal */}
+      <YouTubeTranscriptModal
+        videoUrlOrId={selectedTranscriptVideo?.url || null}
+        videoTitle={selectedTranscriptVideo?.title}
+        onClose={() => setSelectedTranscriptVideo(null)}
+      />
     </div>
   );
 }

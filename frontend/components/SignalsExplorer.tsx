@@ -19,6 +19,7 @@ import {
   SlidersHorizontal
 } from "lucide-react";
 import { RawFeedback } from "@/lib/types";
+import { YouTubeTranscriptModal } from "./YouTubeTranscriptModal";
 
 interface SignalsExplorerProps {
   feedbacks?: RawFeedback[];
@@ -31,6 +32,7 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
   const [sortBy, setSortBy] = useState<"engagement" | "newest">("engagement");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedTranscriptVideo, setSelectedTranscriptVideo] = useState<{ url: string; title?: string } | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 20;
 
@@ -283,6 +285,12 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
                       </span>
                     )}
 
+                    {item.raw_metadata?.timestamp && (
+                      <span className="text-[10px] font-mono text-[#ff6465] bg-[#ff6465]/10 px-1.5 py-0.5 rounded-[4px] border border-[#ff6465]/25">
+                        @{item.raw_metadata.timestamp}
+                      </span>
+                    )}
+
                     <span className="text-[#464a4d]">•</span>
 
                     <span className="text-[#a1a4a5]">
@@ -292,6 +300,25 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
 
                   {/* Resend Ghost Action Buttons */}
                   <div className="flex items-center gap-2">
+                    {/* YouTube Real-Time Transcript Viewer Button */}
+                    {(item.channel.toLowerCase() === "youtube" ||
+                      item.url.includes("youtube.com") ||
+                      item.url.includes("youtu.be")) && (
+                      <button
+                        onClick={() =>
+                          setSelectedTranscriptVideo({
+                            url: item.url,
+                            title: item.title || undefined,
+                          })
+                        }
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
+                        title="View spoken video transcript, dialogue, and cues"
+                      >
+                        <Youtube className="h-3 w-3" />
+                        <span>Transcript</span>
+                      </button>
+                    )}
+
                     <button
                       onClick={() => handleCopy(item)}
                       title="Copy citation"
@@ -387,6 +414,13 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
           </div>
         </div>
       )}
+
+      {/* YouTube Transcript Modal */}
+      <YouTubeTranscriptModal
+        videoUrlOrId={selectedTranscriptVideo?.url || null}
+        videoTitle={selectedTranscriptVideo?.title}
+        onClose={() => setSelectedTranscriptVideo(null)}
+      />
     </div>
   );
 }

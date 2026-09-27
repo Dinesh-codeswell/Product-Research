@@ -30,6 +30,7 @@ export interface RawFeedback {
   content: string;
   author?: string;
   engagement_score: number;
+  raw_metadata?: Record<string, any>;
   created_at: string;
 }
 
@@ -258,5 +259,37 @@ export interface SeoAuditSession {
 export interface StartSeoAuditPayload {
   url: string;
   audit_type: "quick" | "full" | "geo" | "drift";
+}
+
+// ============================================================================
+// YouTube Transcript & Subtitle Types
+// ============================================================================
+
+export interface YouTubeTranscriptSnippet {
+  text: string;
+  start: number;
+  duration: number;
+  timestamp: string;
+  permalink: string;
+}
+
+export interface YouTubeTranscriptStats {
+  duration_seconds: number;
+  formatted_duration: string;
+  snippets_count: number;
+  word_count: number;
+}
+
+export interface YouTubeTranscriptData {
+  success: boolean;
+  video_id: string;
+  video_url: string;
+  language?: string;
+  is_generated?: boolean;
+  text: string;
+  timestamped_text?: string;
+  snippets: YouTubeTranscriptSnippet[];
+  stats: YouTubeTranscriptStats;
+  error?: string;
 }
 

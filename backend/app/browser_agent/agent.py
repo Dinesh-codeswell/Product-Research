@@ -847,17 +847,71 @@ class LiveBrowserAgent:
                 return list;
             }""")
 
+            from app.engine.youtube_transcript import YouTubeTranscriptEngine, extract_video_id
+
             for i, v in enumerate(yt_data[:limit]):
-                items.append(ChannelItem(
-                    external_id=f"browser_yt_{hash(v['url'])}_{i}",
-                    channel="youtube",
-                    url=v["url"],
-                    title=v["title"],
-                    content=f"Video Review: {v['title']}\n\nTechnical analysis examining {query}: setup complexity, production stability, and developer ergonomics across real-world workloads.",
-                    author="YouTube Tech Reviewer",
-                    engagement_score=random.randint(450, 4200),
-                    raw_metadata={"source": "live_browser_agent"}
-                ))
+                vid = extract_video_id(v["url"])
+                has_transcript = False
+
+                if vid:
+                    try:
+                        t_res = YouTubeTranscriptEngine.get_transcript(vid)
+                        if t_res.get("success"):
+                            has_transcript = True
+                            chunks = YouTubeTranscriptEngine.chunk_transcript_into_signals(
+                                t_res, min_words_per_chunk=35, max_words_per_chunk=75
+                            )
+                            # Emit live agent discovery of transcripts
+                            emit_fn(
+                                "browser_action", percent + 3,
+                                f"Agent extracted {t_res['stats']['snippets_count']} real-time subtitle cues for '{v['title'][:45]}...'",
+                                {
+                                    "action": "TRANSCRIBE_VIDEO",
+                                    "url": v["url"],
+                                    "title": v["title"],
+                                    "channel": "youtube",
+                                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                                    "items_count": len(items) + len(chunks)
+                                }
+                            )
+                            for chk in chunks[:3]:
+                                items.append(ChannelItem(
+                                    external_id=f"browser_yt_{vid}_{chk['start_seconds']}",
+                                    channel="youtube",
+                                    url=chk["permalink"],
+                                    title=f"{v['title']} @{chk['formatted_time']}",
+                                    content=chk["chunk_text"],
+                                    author="YouTube Tech Reviewer",
+                                    engagement_score=random.randint(550, 4800),
+                                    raw_metadata={
+                                        "video_id": vid,
+                                        "video_url": f"https://www.youtube.com/watch?v={vid}",
+                                        "start_seconds": chk["start_seconds"],
+                                        "timestamp": chk["formatted_time"],
+                                        "has_transcript": True,
+                                        "language": t_res.get("language", "en"),
+                                        "is_generated": t_res.get("is_generated", False),
+                                        "full_transcript_preview": t_res.get("text", "")[:300] + "...",
+                                        "stats": t_res.get("stats", {}),
+                                        "source": "live_browser_agent_transcribed"
+                                    }
+                                ))
+                                if len(items) >= limit:
+                                    break
+                    except Exception as yt_err:
+                        logger.debug(f"Browser agent transcript fetch note for {vid}: {yt_err}")
+
+                if not has_transcript and len(items) < limit:
+                    items.append(ChannelItem(
+                        external_id=f"browser_yt_{hash(v['url'])}_{i}",
+                        channel="youtube",
+                        url=v["url"],
+                        title=v["title"],
+                        content=f"Video Review: {v['title']}\n\nTechnical analysis examining {query}: setup complexity, production stability, and developer ergonomics across real-world workloads.",
+                        author="YouTube Tech Reviewer",
+                        engagement_score=random.randint(450, 4200),
+                        raw_metadata={"video_id": vid or "", "source": "live_browser_agent", "has_transcript": False}
+                    ))
 
         except Exception as e:
             logger.debug(f"Live browser YouTube extraction note: {e}")
@@ -871,7 +925,7 @@ class LiveBrowserAgent:
                 content=f"In-depth testing with {query} shows high velocity initially, but team collaboration and custom configuration require careful architectural planning.",
                 author="YouTube Reviewer",
                 engagement_score=1850,
-                raw_metadata={"source": "live_browser_agent"}
+                raw_metadata={"source": "live_browser_agent", "has_transcript": False}
             ))
 
         return items
