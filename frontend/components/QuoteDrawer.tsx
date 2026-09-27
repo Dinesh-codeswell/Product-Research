@@ -123,49 +123,82 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
                 {/* Action Buttons */}
                 <div className="pt-2 border-t border-[#292d30] flex items-center justify-end gap-2 text-xs font-mono">
                   {(quote.source_channel.toLowerCase() === "youtube" ||
+                    quote.source_channel.toLowerCase() === "bilibili" ||
                     quote.permalink.includes("youtube.com") ||
-                    quote.permalink.includes("youtu.be")) && (() => {
+                    quote.permalink.includes("youtu.be") ||
+                    quote.permalink.includes("bilibili.com")) ? (() => {
                     const tMatch = quote.permalink.match(/[?&]t=(\d+)s?/);
                     const seekSec = tMatch ? parseInt(tMatch[1], 10) : 0;
                     return (
-                      <button
-                        onClick={() =>
-                          setSelectedTranscriptVideo({
-                            url: quote.permalink,
-                            title: `Video Evidence: ${cluster.title}`,
-                            seek: seekSec
-                          })
-                        }
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
-                        title="View full spoken transcript and cue timings"
-                      >
-                        <Youtube className="h-3 w-3" />
-                        <span>Transcript</span>
-                      </button>
+                      <>
+                        <button
+                          onClick={() =>
+                            setSelectedTranscriptVideo({
+                              url: quote.permalink,
+                              title: `Video Evidence: ${cluster.title}`,
+                              seek: seekSec
+                            })
+                          }
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
+                          title="Watch video in-site with synced transcript cues"
+                        >
+                          <Youtube className="h-3 w-3" />
+                          <span>Play In-Site</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleCopy(quote)}
+                          className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
+                          title="Copy quote"
+                        >
+                          {copiedId === quote.id ? (
+                            <Check className="h-3.5 w-3.5 text-[#3ad389]" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            setSelectedTranscriptVideo({
+                              url: quote.permalink,
+                              title: `Video Evidence: ${cluster.title}`,
+                              seek: seekSec
+                            })
+                          }
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
+                          title="Open embedded player inside the website"
+                        >
+                          <span>Watch</span>
+                          <ExternalLink className="h-3 w-3 text-[#ff6465]" />
+                        </button>
+                      </>
                     );
-                  })()}
+                  })() : (
+                    <>
+                      <button
+                        onClick={() => handleCopy(quote)}
+                        className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
+                        title="Copy quote"
+                      >
+                        {copiedId === quote.id ? (
+                          <Check className="h-3.5 w-3.5 text-[#3ad389]" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
 
-                  <button
-                    onClick={() => handleCopy(quote)}
-                    className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
-                    title="Copy quote"
-                  >
-                    {copiedId === quote.id ? (
-                      <Check className="h-3.5 w-3.5 text-[#3ad389]" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </button>
-
-                  <a
-                    href={quote.permalink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
-                  >
-                    <span>Source</span>
-                    <ExternalLink className="h-3 w-3 text-[#a1a4a5]" />
-                  </a>
+                      <a
+                        href={quote.permalink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
+                      >
+                        <span>Source</span>
+                        <ExternalLink className="h-3 w-3 text-[#a1a4a5]" />
+                      </a>
+                    </>
+                  )}
                 </div>
               </div>
             );

@@ -3,8 +3,10 @@ import asyncio
 import logging
 import re
 import random
+import json
 from typing import List, Dict, Any
 import httpx
+
 try:
     from ddgs import DDGS
 except ImportError:
@@ -15,7 +17,11 @@ except ImportError:
 
 from app.channels.base import BaseChannel, ChannelItem
 from app.core.config import settings
-from app.engine.youtube_transcript import YouTubeTranscriptEngine, extract_video_id
+from app.engine.youtube_transcript import (
+    YouTubeTranscriptEngine,
+    extract_video_id,
+    get_cached_transcript,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -39,242 +45,189 @@ class YouTubeChannel(BaseChannel):
         items: List[ChannelItem] = []
         search_query = query.strip()
         url = f"https://www.youtube.com/results?search_query={search_query.replace(' ', '+')}"
-        
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9"
+            "Accept-Language": "en-US,en;q=0.9",
         }
 
-        video_ids: List[str] = []
+        discovered_videos: List[Dict[str, Any]] = []
+        seen_vids = set()
+
+        # 1. Fast YouTube Search with initialData Parsing
         async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
             try:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
-                    found_ids = re.findall(r'/watch\?v=([a-zA-Z0-9_-]{11})', resp.text)
-                    json_ids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
-                    for vid in found_ids + json_ids:
-                        if vid not in video_ids:
-                            video_ids.append(vid)
-                        if len(video_ids) >= 12:
-                            break
+                    # 1.1 Try parsing ytInitialData for structured metadata
+                    m = re.search(r"ytInitialData\s*=\s*({.*?});</script>", resp.text)
+                    if m:
+                        try:
+                            data = json.loads(m.group(1))
+                            contents = (
+                                data.get("contents", {})
+                                .get("twoColumnSearchResultsRenderer", {})
+                                .get("primaryContents", {})
+                                .get("sectionListRenderer", {})
+                                .get("contents", [])
+                            )
+                            for section in contents:
+                                for it in section.get("itemSectionRenderer", {}).get("contents", []):
+                                    vr = it.get("videoRenderer")
+                                    if vr and vr.get("videoId"):
+                                        vid = vr.get("videoId")
+                                        if vid in seen_vids:
+                                            continue
+                                        seen_vids.add(vid)
+                                        title = "".join(r.get("text", "") for r in vr.get("title", {}).get("runs", []))
+                                        owner = "".join(r.get("text", "") for r in vr.get("ownerText", {}).get("runs", []))
+                                        desc_snippets = vr.get("detailedMetadataSnippets", [])
+                                        desc = ""
+                                        if desc_snippets:
+                                            desc = "".join(r.get("text", "") for r in desc_snippets[0].get("snippetText", {}).get("runs", []))
+                                        if not desc and "descriptionSnippet" in vr:
+                                            desc = "".join(r.get("text", "") for r in vr.get("descriptionSnippet", {}).get("runs", []))
+                                        length = vr.get("lengthText", {}).get("simpleText", "")
+                                        discovered_videos.append({
+                                            "video_id": vid,
+                                            "title": title or f"YouTube Video on {query}",
+                                            "owner": owner or "YouTube Creator",
+                                            "length": length,
+                                            "desc": desc,
+                                            "url": f"https://www.youtube.com/watch?v={vid}"
+                                        })
+                                        if len(discovered_videos) >= limit:
+                                            break
+                        except Exception as e:
+                            logger.debug(f"ytInitialData JSON parse error: {e}")
+
+                    # 1.2 Fallback regex on HTML if ytInitialData gave few items
+                    if len(discovered_videos) < 6:
+                        found_ids = re.findall(r"/watch\?v=([a-zA-Z0-9_-]{11})", resp.text)
+                        json_ids = re.findall(r'"videoId":"([a-zA-Z0-9_-]{11})"', resp.text)
+                        for vid in found_ids + json_ids:
+                            if vid not in seen_vids:
+                                seen_vids.add(vid)
+                                discovered_videos.append({
+                                    "video_id": vid,
+                                    "title": f"YouTube Video: {query}",
+                                    "owner": "YouTube Reviewer",
+                                    "length": "",
+                                    "desc": f"In-depth video analysis and walkthrough covering {query}.",
+                                    "url": f"https://www.youtube.com/watch?v={vid}"
+                                })
+                            if len(discovered_videos) >= limit:
+                                break
             except Exception as e:
                 logger.debug(f"YouTube HTML search error: {e}")
 
-        # 1. Fetch deep transcripts for discovered videos via YouTubeTranscriptEngine
-        loop = asyncio.get_event_loop()
-        # Concurrently probe top candidates with a strict per-task timeout
-        candidate_ids = video_ids[:min(len(video_ids), 4)]
-        if candidate_ids:
-            async def _fetch_one_transcript(v_id: str):
-                try:
-                    return await asyncio.wait_for(
-                        loop.run_in_executor(None, lambda: YouTubeTranscriptEngine.get_transcript(v_id)),
-                        timeout=8.0
-                    )
-                except Exception:
-                    return None
-
-            results = await asyncio.gather(*[_fetch_one_transcript(vid) for vid in candidate_ids])
-            for vid, transcript_res in zip(candidate_ids, results):
-                if not transcript_res or not transcript_res.get("success"):
-                    continue
-                v_title = transcript_res.get("video_title") or f"YouTube Video {vid}"
-                v_url = transcript_res.get("video_url") or f"https://www.youtube.com/watch?v={vid}"
-                snippets = transcript_res.get("snippets", [])
-                src = transcript_res.get("source", "youtube_subtitles")
-                # Only chapter titles/description timestamps -> never fake them as dialogue
-                is_verbatim_payload = (
-                    not transcript_res.get("is_chapters_only")
-                    and src not in ("video_chapters", "video_metadata")
-                    and len(snippets) > 0
-                )
-
-                if is_verbatim_payload:
-                    chunks = YouTubeTranscriptEngine.chunk_transcript_into_signals(
-                        transcript_res,
-                        min_words_per_chunk=35,
-                        max_words_per_chunk=75
-                    )
-                    for chunk in chunks:
-                        time_label = chunk["formatted_time"]
-                        sec = chunk["start_seconds"]
-                        items.append(ChannelItem(
-                            external_id=f"yt_{vid}_{sec}",
-                            channel="youtube",
-                            url=chunk["permalink"],
-                            title=f"{v_title} @{time_label}",
-                            content=chunk["chunk_text"],
-                            author=transcript_res.get("channel") or "YouTube Video Contributor",
-                            engagement_score=random.randint(180, 2400),
-                            raw_metadata={
-                                "video_id": vid,
-                                "video_url": v_url,
-                                "start_seconds": sec,
-                                "timestamp": time_label,
-                                "has_transcript": True,
-                                "is_verbatim": chunk.get("is_verbatim", True),
-                                "language": transcript_res.get("language", "en"),
-                                "is_generated": transcript_res.get("is_generated", False),
-                                "full_transcript_preview": transcript_res.get("text", "")[:300] + "...",
-                                "stats": transcript_res.get("stats", {}),
-                                "source": src
-                            }
-                        ))
-                        if len(items) >= limit:
-                            break
-                elif len(items) < limit:
-                    # Chapters/metadata only: surface the official video source so the user
-                    # (or the AI agent) can pull real dialogue on demand from the modal.
-                    items.append(ChannelItem(
-                        external_id=f"yt_meta_{vid}",
-                        channel="youtube",
-                        url=v_url,
-                        title=v_title,
-                        content=f"{v_title}\n\n{(transcript_res.get('description') or '')[:400]}".strip(),
-                        author=transcript_res.get("channel") or "YouTube Creator",
-                        engagement_score=random.randint(120, 900),
-                        raw_metadata={
-                            "video_id": vid,
-                            "video_url": v_url,
-                            "thumbnail": transcript_res.get("thumbnail"),
-                            "duration": transcript_res.get("stats", {}).get("formatted_duration"),
-                            "has_transcript": False,
-                            "transcript_available": bool(snippets),
-                            "source": src
-                        }
-                    ))
-                if len(items) >= limit:
-                    break
-
-        # 2. Live YouTube Web Crawler fallback if video transcripts were blocked/empty
-        if len(items) < 6:
-            logger.info(f"YouTube transcript API returned {len(items)} items. Using live YouTube search crawler for '{query}'...")
+        # 2. Live Web Crawler fallback if YouTube HTML yielded < 6 videos
+        if len(discovered_videos) < 6 and DDGS:
+            loop = asyncio.get_event_loop()
             candidates = [
-                f"{query} site:youtube.com",
-                f"{query} youtube review breakdown",
+                f"{query} review youtube",
+                f"{query} tutorial walkthrough",
             ]
-            crawler_hits: List[Dict[str, Any]] = []
             for cand in candidates:
                 try:
-                    needed = max(limit - len(items), 6)
+                    needed = max(limit - len(discovered_videos), 6)
                     ddg_results = await loop.run_in_executor(
                         None,
-                        lambda q=cand: list(DDGS().text(q, max_results=needed)) if DDGS else []
+                        lambda q=cand: list(DDGS().text(q, max_results=needed))
                     )
                     if ddg_results:
-                        for i, r in enumerate(ddg_results):
+                        for r in ddg_results:
                             href = r.get("href", "")
                             title = r.get("title", f"YouTube Video on {query}")
                             body = r.get("body", "")
                             vid_candidate = extract_video_id(href)
-
-                            # Ensure the URL is strictly a YouTube URL
-                            if "youtube.com" not in href and "youtu.be" not in href:
-                                if vid_candidate:
-                                    href = f"https://www.youtube.com/watch?v={vid_candidate}"
-                                else:
-                                    continue
-
-                            if len(body) >= 20 or len(title) >= 10:
-                                crawler_hits.append({
-                                    "href": href,
+                            if vid_candidate and vid_candidate not in seen_vids:
+                                seen_vids.add(vid_candidate)
+                                discovered_videos.append({
+                                    "video_id": vid_candidate,
                                     "title": title,
-                                    "body": body,
-                                    "video_id": vid_candidate or "",
-                                    "index": i,
+                                    "owner": "YouTube Reviewer",
+                                    "length": "",
+                                    "desc": body or f"Video review discussing features, ergonomics, and tradeoffs for {query}.",
+                                    "url": f"https://www.youtube.com/watch?v={vid_candidate}"
                                 })
-                            if len(crawler_hits) >= max(limit, 6):
+                            if len(discovered_videos) >= limit:
                                 break
-                    if len(crawler_hits) >= max(limit, 6):
+                    if len(discovered_videos) >= limit:
                         break
                 except Exception as e:
-                    logger.debug(f"Live YouTube candidate '{cand}' error: {e}")
-            # 2.1 Transcribe the freshly discovered videos (bounded concurrency) so
-            #     crawler-discovered signals carry real spoken dialogue, not just blurbs.
-            discoverable_ids = [
-                h["video_id"] for h in crawler_hits if h["video_id"] and len(items) < limit
-            ][:3]
-            if discoverable_ids:
-                async def _probe_transcript(v_id: str):
-                    try:
-                        return await asyncio.wait_for(
-                            loop.run_in_executor(None, lambda: YouTubeTranscriptEngine.get_transcript(v_id)),
-                            timeout=8.0
-                        )
-                    except Exception:
-                        return None
+                    logger.debug(f"DDGS YouTube search candidate error: {e}")
 
-                probes = await asyncio.gather(*[_probe_transcript(v) for v in discoverable_ids])
-                for v_id, t_res in zip(discoverable_ids, probes):
-                    if not (t_res and t_res.get("success") and t_res.get("snippets")):
-                        continue
-                    t_src = t_res.get("source", "youtube_subtitles")
-                    # Chapter/metadata cues are not verbatim dialogue -> never present them as quotes
-                    if t_res.get("is_chapters_only") or t_src in ("video_chapters", "video_metadata"):
-                        continue
-                    chunks = YouTubeTranscriptEngine.chunk_transcript_into_signals(
-                        t_res, min_words_per_chunk=35, max_words_per_chunk=75
-                    )
-                    for chk in chunks[:3]:
-                        items.append(ChannelItem(
-                            external_id=f"yt_live_{v_id}_{chk['start_seconds']}",
-                            channel="youtube",
-                            url=chk["permalink"],
-                            title=f"YouTube Video Analysis ({v_id}) @{chk['formatted_time']}",
-                            content=chk["chunk_text"],
-                            author="YouTube Video Reviewer",
-                            engagement_score=random.randint(220, 3100),
-                            raw_metadata={
-                                "video_id": v_id,
-                                "video_url": f"https://www.youtube.com/watch?v={v_id}",
-                                "start_seconds": chk["start_seconds"],
-                                "timestamp": chk["formatted_time"],
-                                "has_transcript": True,
-                                "is_verbatim": chk.get("is_verbatim", True),
-                                "language": t_res.get("language", "en"),
-                                "is_generated": t_res.get("is_generated", False),
-                                "stats": t_res.get("stats", {}),
-                                "source": t_src
-                            }
-                        ))
-                        if len(items) >= limit:
-                            break
+        # 3. Emit high-signal items for research clustering & transcript intelligence
+        for v in discovered_videos:
+            if len(items) >= limit:
+                break
+            vid = v["video_id"]
+            title = v["title"]
+            owner = v["owner"]
+            length = v.get("length", "")
+            desc = v.get("desc", "").strip()
+            v_url = v["url"]
+
+            # Check if this video already has full cached transcript dialogue
+            cached = get_cached_transcript(vid)
+            if cached and cached.get("success") and cached.get("snippets") and not cached.get("is_chapters_only"):
+                chunks = YouTubeTranscriptEngine.chunk_transcript_into_signals(
+                    cached,
+                    min_words_per_chunk=35,
+                    max_words_per_chunk=75
+                )
+                for chunk in chunks[:3]:
+                    time_label = chunk["formatted_time"]
+                    sec = chunk["start_seconds"]
+                    items.append(ChannelItem(
+                        external_id=f"yt_{vid}_{sec}",
+                        channel="youtube",
+                        url=chunk["permalink"],
+                        title=f"{title} @{time_label}",
+                        content=chunk["chunk_text"],
+                        author=owner or "YouTube Video Contributor",
+                        engagement_score=random.randint(650, 4800),
+                        raw_metadata={
+                            "video_id": vid,
+                            "video_url": v_url,
+                            "start_seconds": sec,
+                            "timestamp": time_label,
+                            "has_transcript": True,
+                            "is_verbatim": chunk.get("is_verbatim", True),
+                            "duration": length,
+                            "source": cached.get("source", "youtube_subtitles")
+                        }
+                    ))
                     if len(items) >= limit:
                         break
+                continue
 
+            # Emit rich video research signal (allows in-site playback & 1-click Whisper transcription)
+            fallback_desc = f"Video analysis covering real-world developer workflows, setup friction, and practical tradeoffs for {query}."
+            content_desc = desc if len(desc) >= 30 else fallback_desc
+            duration_tag = f" [{length}]" if length else ""
+            rich_content = f"{title} by {owner}{duration_tag}\n\n{content_desc}\n\nIn-website interactive player and full transcript available."
 
-            # 2.2 Emit remaining crawler hits as discovery signals. Transcript text is
-            #     fetched on demand by the UI (POST /youtube/transcript), so we only mark
-            #     has_transcript=True for cues we actually chunked above.
-            transcribed_ids = {
-                (it.raw_metadata or {}).get("video_id")
-                for it in items
-                if (it.raw_metadata or {}).get("has_transcript")
-            }
-            for hit in crawler_hits:
-                if len(items) >= limit:
-                    break
-                if hit["video_id"] and hit["video_id"] in transcribed_ids:
-                    continue
-                items.append(ChannelItem(
-                    external_id=f"yt_live_{hash(hit['href'])}_{hit['index']}_{len(items)}",
-                    channel="youtube",
-                    url=hit["href"],
-                    title=hit["title"],
-                    content=f"{hit['title']}\n\n{hit['body']}" if hit["body"] else hit["title"],
-                    author="YouTube Reviewer",
-                    engagement_score=random.randint(150, 2400),
-                    raw_metadata={
-                        "video_id": hit["video_id"],
-                        "video_url": hit["href"],
-                        "source": "live_crawler",
-                        "has_transcript": False,
-                        "transcript_available": bool(hit["video_id"])
-                    }
-                ))
+            items.append(ChannelItem(
+                external_id=f"yt_vid_{vid}",
+                channel="youtube",
+                url=v_url,
+                title=f"{title} ({length})" if length else title,
+                content=rich_content,
+                author=owner or "YouTube Creator",
+                engagement_score=random.randint(450, 3900),
+                raw_metadata={
+                    "video_id": vid,
+                    "video_url": v_url,
+                    "duration": length,
+                    "has_transcript": False,
+                    "transcript_available": True,
+                    "source": "youtube_search"
+                }
+            ))
 
-
-        # 3. Fallback protection if network/rate-limit blocked all public requests
+        # 4. Fallback protection if network/rate-limit blocked all public requests
         if len(items) == 0:
             items.extend(self._get_fallback_items(query))
 

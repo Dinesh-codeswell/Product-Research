@@ -300,10 +300,12 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
 
                   {/* Resend Ghost Action Buttons */}
                   <div className="flex items-center gap-2">
-                    {/* YouTube Real-Time Transcript Viewer Button */}
+                    {/* Video In-Website Player & Controls (Zero External Tabs) */}
                     {(item.channel.toLowerCase() === "youtube" ||
+                      item.channel.toLowerCase() === "bilibili" ||
                       item.url.includes("youtube.com") ||
-                      item.url.includes("youtu.be")) && (() => {
+                      item.url.includes("youtu.be") ||
+                      item.url.includes("bilibili.com")) ? (() => {
                       const tMatch = item.url.match(/[?&]t=(\d+)s?/);
                       const metaSeek = Number((item.raw_metadata as any)?.start_seconds ?? NaN);
                       const seekSec = tMatch
@@ -312,44 +314,75 @@ export function SignalsExplorer({ feedbacks = [], totalExpected = 0 }: SignalsEx
                         ? Math.floor(metaSeek)
                         : 0;
                       return (
-                        <button
-                          onClick={() =>
-                            setSelectedTranscriptVideo({
-                              url: item.url,
-                              title: item.title || undefined,
-                              seek: seekSec,
-                            })
-                          }
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
-                          title="View spoken video transcript, dialogue, and cues"
-                        >
-                          <Youtube className="h-3 w-3" />
-                          <span>Transcript</span>
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() =>
+                              setSelectedTranscriptVideo({
+                                url: item.url,
+                                title: item.title || undefined,
+                                seek: seekSec,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] bg-[#ff6465]/15 border border-[#ff6465]/35 hover:bg-[#ff6465]/25 text-xs font-mono text-[#ff6465] transition-all"
+                            title="Play in-site video with synced transcript & cues"
+                          >
+                            <Youtube className="h-3 w-3" />
+                            <span>Play In-Site</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleCopy(item)}
+                            title="Copy citation"
+                            className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
+                          >
+                            {copiedId === item.id ? (
+                              <Check className="h-3.5 w-3.5 text-[#3ad389]" />
+                            ) : (
+                              <Copy className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() =>
+                              setSelectedTranscriptVideo({
+                                url: item.url,
+                                title: item.title || undefined,
+                                seek: seekSec,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
+                            title="Open embedded player inside the website"
+                          >
+                            <span>Watch</span>
+                            <ExternalLink className="h-3 w-3 text-[#ff6465]" />
+                          </button>
+                        </div>
                       );
-                    })()}
+                    })() : (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleCopy(item)}
+                          title="Copy citation"
+                          className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
+                        >
+                          {copiedId === item.id ? (
+                            <Check className="h-3.5 w-3.5 text-[#3ad389]" />
+                          ) : (
+                            <Copy className="h-3.5 w-3.5" />
+                          )}
+                        </button>
 
-                    <button
-                      onClick={() => handleCopy(item)}
-                      title="Copy citation"
-                      className="p-1.5 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-[#a1a4a5] hover:text-[#ffffff] transition-all"
-                    >
-                      {copiedId === item.id ? (
-                        <Check className="h-3.5 w-3.5 text-[#3ad389]" />
-                      ) : (
-                        <Copy className="h-3.5 w-3.5" />
-                      )}
-                    </button>
-
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
-                    >
-                      <span>Source</span>
-                      <ExternalLink className="h-3 w-3 text-[#a1a4a5]" />
-                    </a>
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-mono text-[#f0f0f0] hover:text-[#ffffff] transition-all"
+                        >
+                          <span>Source</span>
+                          <ExternalLink className="h-3 w-3 text-[#a1a4a5]" />
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </div>
 

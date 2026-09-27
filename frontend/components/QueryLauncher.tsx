@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Search,
@@ -78,8 +78,15 @@ export function QueryLauncher() {
   const [channelFilter, setChannelFilter] = useState<string>("all");
   
   // Detect if running on Vercel (where browser agent is not supported)
-  const isVercel = typeof window !== "undefined" && 
-    (process.env.NEXT_PUBLIC_VERCEL === "1" || window.location.hostname.includes("vercel.app"));
+  const [isVercel, setIsVercel] = useState(false);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setIsVercel(
+        process.env.NEXT_PUBLIC_VERCEL === "1" || 
+        window.location.hostname.includes("vercel.app")
+      );
+    }
+  }, []);
   
   const [isApprovalOpen, setIsApprovalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);

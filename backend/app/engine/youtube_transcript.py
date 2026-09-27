@@ -270,47 +270,68 @@ class YouTubeTranscriptEngine:
 
     @staticmethod
     def get_video_info(url_or_id: str) -> Dict[str, Any]:
-        """Fast metadata extraction using yt-dlp without downloading media."""
+        """Fast metadata extraction using oEmbed first (100ms), falling back to bounded yt-dlp."""
         video_id = extract_video_id(url_or_id)
         if not video_id:
             return {"video_id": "", "title": url_or_id, "duration": 0}
 
+        info_dict: Dict[str, Any] = {
+            "video_id": video_id,
+            "title": f"YouTube Video {video_id}",
+            "channel": "YouTube Creator",
+            "duration": 0,
+            "description": "",
+            "chapters": [],
+            "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
+            "view_count": 0,
+            "subtitles_available": [],
+            "auto_subtitles_available": [],
+        }
+
+        # Step 1: Ultra-fast YouTube oEmbed (100ms, zero-auth, high availability)
+        try:
+            oembed_url = f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
+            resp = requests.get(oembed_url, timeout=2.5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get("title"):
+                    info_dict["title"] = data["title"]
+                if data.get("author_name"):
+                    info_dict["channel"] = data["author_name"]
+                if data.get("thumbnail_url"):
+                    info_dict["thumbnail"] = data["thumbnail_url"]
+        except Exception as e:
+            logger.debug(f"oEmbed fetch error for {video_id}: {e}")
+
+        # Step 2: yt-dlp extraction with flat/timeout protection for chapters, duration & description
         try:
             import yt_dlp
             ydl_opts = {
                 "skip_download": True,
                 "quiet": True,
                 "no_warnings": True,
-                "extract_flat": False,
+                "extract_flat": "in_playlist",
+                "socket_timeout": 3.0,
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-                return {
-                    "video_id": video_id,
-                    "title": info.get("title") or f"YouTube Video {video_id}",
-                    "channel": info.get("uploader") or info.get("channel") or "YouTube Creator",
-                    "duration": int(info.get("duration") or 0),
-                    "description": info.get("description") or "",
-                    "chapters": info.get("chapters") or [],
-                    "thumbnail": info.get("thumbnail") or f"https://img.youtube.com/vi/{video_id}/maxresdefault.jpg",
-                    "view_count": info.get("view_count") or 0,
-                    "subtitles_available": list((info.get("subtitles") or {}).keys()),
-                    "auto_subtitles_available": list((info.get("automatic_captions") or {}).keys())[:10],
-                }
+                if info:
+                    if info.get("title") and info_dict["title"] == f"YouTube Video {video_id}":
+                        info_dict["title"] = info["title"]
+                    if info.get("uploader") or info.get("channel"):
+                        info_dict["channel"] = info.get("uploader") or info.get("channel")
+                    info_dict["duration"] = int(info.get("duration") or 0)
+                    info_dict["description"] = info.get("description") or ""
+                    info_dict["chapters"] = info.get("chapters") or []
+                    if info.get("thumbnail") and not info_dict.get("thumbnail"):
+                        info_dict["thumbnail"] = info["thumbnail"]
+                    info_dict["view_count"] = info.get("view_count") or 0
+                    info_dict["subtitles_available"] = list((info.get("subtitles") or {}).keys())
+                    info_dict["auto_subtitles_available"] = list((info.get("automatic_captions") or {}).keys())[:10]
         except Exception as e:
             logger.debug(f"yt-dlp extract_info error for {video_id}: {e}")
-            return {
-                "video_id": video_id,
-                "title": f"YouTube Video {video_id}",
-                "channel": "YouTube Creator",
-                "duration": 0,
-                "description": "",
-                "chapters": [],
-                "thumbnail": f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg",
-                "view_count": 0,
-                "subtitles_available": [],
-                "auto_subtitles_available": [],
-            }
+
+        return info_dict
 
     @classmethod
     def get_transcript(
