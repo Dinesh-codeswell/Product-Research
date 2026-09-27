@@ -9,9 +9,19 @@ function AppShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const isPlayground = pathname === "/playground" || (pathname === "/models" && searchParams?.get("tab") === "playground");
+  const isOffice = pathname === "/office" || pathname?.startsWith("/office");
 
   if (isPlayground) {
     return <main className="w-screen h-screen overflow-hidden bg-[#0c0d10]">{children}</main>;
+  }
+
+  if (isOffice) {
+    return (
+      <div className="flex flex-col h-screen w-screen overflow-hidden bg-[#0c0d10]">
+        <Navbar />
+        <main className="flex-1 overflow-hidden">{children}</main>
+      </div>
+    );
   }
 
   return (

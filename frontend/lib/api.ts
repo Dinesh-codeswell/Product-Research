@@ -156,3 +156,130 @@ export async function listRecentSeoAudits(): Promise<any[]> {
     return [];
   }
 }
+
+// ============================================================================
+// Office Studio API Clients (Univer Data Bridge & Persistence)
+// ============================================================================
+
+export interface OfficeSourceItem {
+  id: string;
+  title: string;
+  source_type: "research" | "seo";
+  created_at: string;
+  status: string;
+  meta: Record<string, any>;
+}
+
+export interface OfficeSourcesResponse {
+  research: OfficeSourceItem[];
+  seo: OfficeSourceItem[];
+}
+
+export interface OfficeConnectedData {
+  source_type: "research" | "seo";
+  source_id: string;
+  title: string;
+  summary: string;
+  workbook: any;
+  document: {
+    title: string;
+    markdown: string;
+  };
+}
+
+export interface OfficeSavedDocument {
+  id: string;
+  title: string;
+  doc_type: "sheets" | "docs";
+  source_type?: string;
+  source_id?: string;
+  summary?: string;
+  created_at: string;
+  updated_at: string;
+  snapshot?: any;
+}
+
+export async function listOfficeSources(): Promise<OfficeSourcesResponse> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/office/sources`, { cache: "no-store" });
+    if (!res.ok) return { research: [], seo: [] };
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching office sources:", err);
+    return { research: [], seo: [] };
+  }
+}
+
+export async function connectOfficeSource(
+  sourceType: "research" | "seo",
+  sourceId: string
+): Promise<OfficeConnectedData> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/office/connect/${sourceType}/${sourceId}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to connect ${sourceType} source: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export function getOfficeExportXlsxUrl(sourceType: "research" | "seo", sourceId: string): string {
+  const base = getBaseUrl();
+  return `${base}/office/export/${sourceType}/${sourceId}/xlsx`;
+}
+
+export async function listOfficeDocuments(): Promise<OfficeSavedDocument[]> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/office/documents`, { cache: "no-store" });
+    if (!res.ok) return [];
+    return res.json();
+  } catch (err) {
+    console.error("Error fetching office documents:", err);
+    return [];
+  }
+}
+
+export async function getOfficeDocument(docId: string): Promise<OfficeSavedDocument> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/office/documents/${docId}`, { cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch document: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function saveOfficeDocument(payload: {
+  id?: string;
+  title: string;
+  doc_type: "sheets" | "docs";
+  source_type?: string;
+  source_id?: string;
+  snapshot: any;
+  summary?: string;
+}): Promise<{ status: string; id: string; message: string }> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/office/documents`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to save office document: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteOfficeDocument(docId: string): Promise<{ status: string; id: string }> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/office/documents/${docId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to delete document: ${res.statusText}`);
+  }
+  return res.json();
+}
+

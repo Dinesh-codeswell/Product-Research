@@ -22,9 +22,10 @@ import {
   Image as ImageIcon,
   TrendingDown,
   TrendingUp,
-  Cpu
+  Cpu,
+  FileSpreadsheet
 } from "lucide-react";
-import { getSeoAudit, getSeoExportUrl, getSeoEventSourceUrl } from "@/lib/api";
+import { getSeoAudit, getSeoExportUrl, getSeoEventSourceUrl, getOfficeExportXlsxUrl } from "@/lib/api";
 import { SeoAuditSession, SSEProgressEvent } from "@/lib/types";
 
 export default function SeoAuditPage() {
@@ -164,6 +165,25 @@ export default function SeoAuditPage() {
             )}
             <span>{copiedLink ? "Link Copied" : "Share"}</span>
           </button>
+
+          <Link
+            href={`/office?source=seo&id=${auditId}`}
+            className="px-3.5 py-2 rounded-[6px] bg-[#9281f7]/20 border border-[#9281f7]/50 hover:bg-[#9281f7]/30 text-xs font-sans text-[#ffffff] flex items-center gap-2 transition-all duration-150 font-medium shadow-subtle group"
+            title="Open in Office Studio (Sheets & Docs live workspace)"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-[#9281f7] group-hover:scale-110 transition-transform" />
+            <span>Open in Office Studio</span>
+          </Link>
+
+          <a
+            href={getOfficeExportXlsxUrl("seo", auditId)}
+            download
+            className="px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#3ad389]/60 text-xs font-sans text-[#3ad389] hover:text-[#ffffff] flex items-center gap-1.5 transition-all duration-150"
+            title="Download multi-tab styled Microsoft Excel spreadsheet (.xlsx)"
+          >
+            <Download className="h-3.5 w-3.5 text-[#3ad389]" />
+            <span>Excel (.xlsx)</span>
+          </a>
 
           <a
             href={getSeoExportUrl(auditId, "markdown")}

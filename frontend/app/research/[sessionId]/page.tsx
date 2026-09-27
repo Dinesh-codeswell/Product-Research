@@ -13,9 +13,10 @@ import {
   RefreshCw,
   Radio,
   Monitor,
-  Sparkles
+  Sparkles,
+  FileSpreadsheet
 } from "lucide-react";
-import { getResearchSession, getExportUrl, getEventSourceUrl } from "@/lib/api";
+import { getResearchSession, getExportUrl, getEventSourceUrl, getOfficeExportXlsxUrl } from "@/lib/api";
 import { ResearchSession, InsightCluster, SSEProgressEvent, BrowserActionEvent } from "@/lib/types";
 import { LiveProgress } from "@/components/LiveProgress";
 import { ClusterMatrix } from "@/components/ClusterMatrix";
@@ -188,6 +189,25 @@ export default function ResearchSessionPage() {
             )}
             <span>{copiedLink ? "Link Copied" : "Share"}</span>
           </button>
+
+          <Link
+            href={`/office?source=research&id=${sessionId}`}
+            className="px-3.5 py-2 rounded-[6px] bg-[#9281f7]/20 border border-[#9281f7]/50 hover:bg-[#9281f7]/30 text-xs font-sans text-[#ffffff] flex items-center gap-2 transition-all duration-150 font-medium shadow-subtle group"
+            title="Open in Office Studio (Sheets & Docs live workspace)"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5 text-[#9281f7] group-hover:scale-110 transition-transform" />
+            <span>Open in Office Studio</span>
+          </Link>
+
+          <a
+            href={getOfficeExportXlsxUrl("research", sessionId)}
+            download
+            className="px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#3ad389]/60 text-xs font-sans text-[#3ad389] hover:text-[#ffffff] flex items-center gap-1.5 transition-all duration-150"
+            title="Download multi-tab styled Microsoft Excel spreadsheet (.xlsx)"
+          >
+            <Download className="h-3.5 w-3.5 text-[#3ad389]" />
+            <span>Excel (.xlsx)</span>
+          </a>
 
           <a
             href={getExportUrl(sessionId, "ai-bundle")}
