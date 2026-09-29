@@ -11,6 +11,11 @@ from app.seo.meta_generator import MetaGenerator
 from app.seo.image_auditor import ImageSeoAuditor
 from app.seo.keyword_gap import KeywordAndContentAnalyzer
 from app.seo.drift_monitor import DriftMonitor
+from app.seo.keyword_universe import KeywordUniverseBuilder
+from app.seo.content_planner import ContentPlanner
+from app.seo.link_integrity import LinkIntegrityAuditor
+from app.seo.sitemap_auditor import SitemapAuditor
+from app.seo.international_auditor import InternationalAuditor
 
 class SeoAuditEngine:
     def __init__(self):
@@ -22,6 +27,11 @@ class SeoAuditEngine:
         self.image_auditor = ImageSeoAuditor()
         self.keyword_analyzer = KeywordAndContentAnalyzer()
         self.drift_monitor = DriftMonitor()
+        self.keyword_universe_builder = KeywordUniverseBuilder()
+        self.content_planner = ContentPlanner()
+        self.link_auditor = LinkIntegrityAuditor()
+        self.sitemap_auditor = SitemapAuditor()
+        self.international_auditor = InternationalAuditor()
 
     async def run_audit(
         self,
@@ -86,6 +96,29 @@ class SeoAuditEngine:
         )
 
         # -------------------------------------------------------------
+        # Phase 5b: Keyword Universe & Editorial Content Plan
+        # -------------------------------------------------------------
+        notify("keyword_universe", 87, "Building keyword universe (intent classification + topic clusters) & editorial plan...")
+        keyword_universe_result = self.keyword_universe_builder.build(
+            crawl_data.get("visible_text", ""),
+            crawl_data.get("headings", {}),
+            crawl_data.get("meta_description", {}).get("text", ""),
+        )
+        content_plan_result = self.content_planner.build_plan(
+            keyword_universe_result,
+            existing_content_hints=crawl_data.get("links", {}).get("internal_sample", []),
+            domain=crawl_data.get("url", ""),
+        )
+
+        # -------------------------------------------------------------
+        # Phase 5c: Link Integrity, Sitemap & International Targeting
+        # -------------------------------------------------------------
+        notify("link_integrity", 89, "Probing sampled links for 404s and redirect chains...")
+        link_result = await self.link_auditor.audit(crawl_data)
+        sitemap_result = await self.sitemap_auditor.audit(url, crawl_data)
+        international_result = self.international_auditor.audit(crawl_data, url)
+
+        # -------------------------------------------------------------
         # Phase 6: AI Search Engine Optimization (GEO) & Strategic SERP Synthesis
         # -------------------------------------------------------------
         from app.engine.ai_planner import AIResearchPlanner
@@ -105,6 +138,9 @@ class SeoAuditEngine:
         geo_score = geo_result.get("overall_score", 50)
         img_score = image_result.get("score", 80)
         content_score = keyword_result.get("content_completeness_score", 60)
+        link_score = link_result.get("link_health_score", 100)
+        sitemap_score = sitemap_result.get("sitemap_health_score", 0) if sitemap_result.get("success") else 40
+        intl_score = international_result.get("international_score", 70)
         
         # On-Page score based on title, meta desc, headings, schemas
         onpage_score = 100
@@ -118,13 +154,16 @@ class SeoAuditEngine:
             onpage_score -= 20
         onpage_score = max(0, min(100, onpage_score))
 
-        # Overall Composite Score
+        # Overall Composite Score (re-weighted to include the new pillars)
         overall_score = round(
-            (tech_score * 0.25) +
-            (geo_score * 0.30) +
-            (onpage_score * 0.20) +
-            (img_score * 0.15) +
-            (content_score * 0.10)
+            (tech_score * 0.22) +
+            (geo_score * 0.26) +
+            (onpage_score * 0.17) +
+            (img_score * 0.12) +
+            (content_score * 0.08) +
+            (link_score * 0.07) +
+            (sitemap_score * 0.04) +
+            (intl_score * 0.04)
         )
 
         # Drift comparison
@@ -143,6 +182,16 @@ class SeoAuditEngine:
         ]
         if rendering_result.get("tested") and rendering_result.get("risk_level") == "HIGH":
             summary_lines.append(f"- **Rendering Warning:** High JS Hydration Gap detected (+{rendering_result.get('words_difference')} words post-hydration). Pre-render content server-side to maximize crawler reach.")
+        if link_result.get("broken_count"):
+            summary_lines.append(f"- **Link Health ({link_score}/100):** {link_result['broken_count']} broken of {link_result['checked']} sampled links ({link_result['broken_rate'] * 100:.0f}% broken rate).")
+        else:
+            summary_lines.append(f"- **Link Health ({link_score}/100):** {link_result['checked']} sampled links, zero broken.")
+        sitemap_line = (
+            f"- **Sitemap ({sitemap_score}/100):** {sitemap_result.get('url_count', 0)} URLs indexed in sitemap."
+            if sitemap_result.get("success")
+            else "- **Sitemap:** No XML sitemap found — generate one and reference it in robots.txt."
+        )
+        summary_lines.append(sitemap_line)
 
         notify("completed", 100, f"SEO audit completed! Overall score: {overall_score}/100")
 
@@ -157,7 +206,10 @@ class SeoAuditEngine:
                 "geo_readiness": geo_score,
                 "onpage": onpage_score,
                 "image": img_score,
-                "content_completeness": content_score
+                "content_completeness": content_score,
+                "link_integrity": link_score,
+                "sitemap": sitemap_score,
+                "international": intl_score
             },
             "executive_summary": "\n".join(summary_lines),
             "technical": crawl_data,
@@ -167,6 +219,11 @@ class SeoAuditEngine:
             "meta": meta_result,
             "images": image_result,
             "keywords": keyword_result,
+            "keyword_universe": keyword_universe_result,
+            "content_plan": content_plan_result,
+            "link_integrity": link_result,
+            "sitemap": {k: v for k, v in sitemap_result.items() if k != "xml"},
+            "international": international_result,
             "drift": drift_result,
             "new_snapshot": new_snapshot,
             "ai_insights": ai_insights

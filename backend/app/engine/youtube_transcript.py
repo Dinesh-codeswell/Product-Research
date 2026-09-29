@@ -69,6 +69,86 @@ def get_realistic_headers() -> Dict[str, str]:
     }
 
 
+def get_resilient_ydl_opts(
+    extra_opts: Optional[Dict[str, Any]] = None,
+    client_preset: str = "web_embedded",
+    cookies_from_browser: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Constructs yt-dlp options specifically tailored to bypass YouTube's datacenter anti-bot verification.
+    1. Sets player_client in extractor_args ('web_embedded,default', 'mweb,default', or 'android,ios').
+    2. Auto-resolves cookies from YOUTUBE_COOKIES env var, YOUTUBE_COOKIES_FILE, data/cookies.txt, or cookies.txt.
+    3. Optionally borrows cookies from a local browser (YTSage technique) via cookies_from_browser.
+    4. Supports YOUTUBE_PROXY or HTTP_PROXY routing.
+    5. Sets realistic browser user-agent and language headers.
+    """
+    clients_map = {
+        "web_embedded": ["web_embedded", "default"],
+        "mweb": ["mweb", "default"],
+        "android": ["android", "ios"],
+        "default": ["default"],
+    }
+    selected_clients = clients_map.get(client_preset, ["web_embedded", "default"])
+
+    opts: Dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "extractor_args": {
+            "youtube": {
+                "player_client": selected_clients
+            }
+        },
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+    }
+
+    # 1. Check for cookie file or env var
+    cookie_file = os.getenv("YOUTUBE_COOKIES_FILE")
+    if not cookie_file or not os.path.exists(cookie_file):
+        candidates = [
+            Path("data/cookies.txt"),
+            Path("data/youtube_cookies.txt"),
+            Path("cookies.txt"),
+            Path(__file__).parent.parent.parent / "data" / "cookies.txt",
+            Path(__file__).parent.parent.parent / "cookies.txt",
+        ]
+        for c in candidates:
+            if c.is_file() and c.stat().st_size > 0:
+                cookie_file = str(c.resolve())
+                break
+
+    # If YOUTUBE_COOKIES env var is present (raw Netscape cookies text), write to data/youtube_cookies.txt
+    raw_cookies = os.getenv("YOUTUBE_COOKIES")
+    if raw_cookies and not cookie_file:
+        try:
+            data_dir = Path("data")
+            data_dir.mkdir(parents=True, exist_ok=True)
+            target = data_dir / "youtube_cookies.txt"
+            target.write_text(raw_cookies.strip(), encoding="utf-8")
+            cookie_file = str(target.resolve())
+        except Exception as e:
+            logger.warning(f"Could not persist YOUTUBE_COOKIES env var: {e}")
+
+    if cookie_file and os.path.exists(cookie_file):
+        opts["cookiefile"] = cookie_file
+    elif cookies_from_browser or os.getenv("YOUTUBE_COOKIES_FROM_BROWSER"):
+        # Only used when no explicit cookie file exists. YTSage's trick: borrow a real
+        # logged-in browser session. yt-dlp requires the browser to be closed on Windows.
+        browser_name = cookies_from_browser or os.getenv("YOUTUBE_COOKIES_FROM_BROWSER", "chrome")
+        opts["cookiesfrombrowser"] = (browser_name, None, None, None)
+
+    # 2. Check for proxy
+    proxy = os.getenv("YOUTUBE_PROXY") or os.getenv("HTTP_PROXY") or os.getenv("HTTPS_PROXY")
+    if proxy:
+        opts["proxy"] = proxy
+
+    if extra_opts:
+        opts.update(extra_opts)
+
+    return opts
+
+
 def resolve_transcription_keys() -> Dict[str, str]:
     """Resolves available ASR/LLM transcription keys across settings, env, and ai_model_config.json."""
     groq_key = getattr(settings, "GROQ_API_KEY", "") or os.getenv("GROQ_API_KEY", "")
@@ -347,31 +427,53 @@ class YouTubeTranscriptEngine:
         except Exception as e:
             logger.debug(f"oEmbed fetch error for {video_id}: {e}")
 
-        # Step 2: yt-dlp extraction with flat/timeout protection for chapters, duration & description
+        # Step 2: yt-dlp extraction with resilient headers and flat/timeout protection.
+        # Tries web_embedded first, then retries once with cookies borrowed from the local
+        # browser when YouTube serves a bot-verification wall (YTSage technique).
         try:
             import yt_dlp
-            ydl_opts = {
+
+            def _probe_with(opts: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    return ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+
+            def _absorb(info: Optional[Dict[str, Any]]) -> None:
+                if not info:
+                    return
+                if info.get("title") and info_dict["title"] == f"YouTube Video {video_id}":
+                    info_dict["title"] = info["title"]
+                if info.get("uploader") or info.get("channel"):
+                    info_dict["channel"] = info.get("uploader") or info.get("channel")
+                info_dict["duration"] = int(info.get("duration") or 0)
+                info_dict["description"] = info.get("description") or ""
+                info_dict["chapters"] = info.get("chapters") or []
+                if info.get("thumbnail") and not info_dict.get("thumbnail"):
+                    info_dict["thumbnail"] = info["thumbnail"]
+                info_dict["view_count"] = info.get("view_count") or 0
+                info_dict["subtitles_available"] = list((info.get("subtitles") or {}).keys())
+                info_dict["auto_subtitles_available"] = list((info.get("automatic_captions") or {}).keys())[:10]
+
+            probe_opts = get_resilient_ydl_opts({
                 "skip_download": True,
-                "quiet": True,
-                "no_warnings": True,
                 "extract_flat": "in_playlist",
-                "socket_timeout": 3.0,
-            }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-                if info:
-                    if info.get("title") and info_dict["title"] == f"YouTube Video {video_id}":
-                        info_dict["title"] = info["title"]
-                    if info.get("uploader") or info.get("channel"):
-                        info_dict["channel"] = info.get("uploader") or info.get("channel")
-                    info_dict["duration"] = int(info.get("duration") or 0)
-                    info_dict["description"] = info.get("description") or ""
-                    info_dict["chapters"] = info.get("chapters") or []
-                    if info.get("thumbnail") and not info_dict.get("thumbnail"):
-                        info_dict["thumbnail"] = info["thumbnail"]
-                    info_dict["view_count"] = info.get("view_count") or 0
-                    info_dict["subtitles_available"] = list((info.get("subtitles") or {}).keys())
-                    info_dict["auto_subtitles_available"] = list((info.get("automatic_captions") or {}).keys())[:10]
+                "socket_timeout": 5.0,
+            })
+            try:
+                _absorb(_probe_with(probe_opts))
+            except Exception as probe_err:
+                if "Sign in to confirm" not in str(probe_err) and "bot" not in str(probe_err).lower():
+                    raise
+                # Bot wall: retry once with local browser cookies (Chrome/Edge on Windows).
+                for browser in ("chrome", "edge", "firefox", "brave"):
+                    try:
+                        _absorb(_probe_with(get_resilient_ydl_opts(
+                            {"skip_download": True, "extract_flat": "in_playlist", "socket_timeout": 5.0},
+                            client_preset="mweb",
+                            cookies_from_browser=browser,
+                        )))
+                        break
+                    except Exception as bc_err:
+                        logger.debug(f"Browser-cookie probe '{browser}' failed for {video_id}: {bc_err}")
         except Exception as e:
             logger.debug(f"yt-dlp extract_info error for {video_id}: {e}")
 
@@ -805,15 +907,20 @@ class YouTubeTranscriptEngine:
             audio_path = Path(tmpdir) / f"{video_id}.m4a"
             try:
                 import yt_dlp
-                ydl_opts = {
+                base_opts = {
                     "format": "ba[ext=m4a]/ba/b",
                     "outtmpl": str(audio_path),
                     "max_filesize": 25 * 1024 * 1024,  # Whisper/Gemini limit 25MB
-                    "quiet": True,
-                    "no_warnings": True,
                 }
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([video_url])
+                ydl_opts = get_resilient_ydl_opts(base_opts, client_preset="web_embedded")
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([video_url])
+                except Exception as dl_err:
+                    logger.warning(f"web_embedded audio download failed ({dl_err}), falling back to mweb...")
+                    ydl_opts_fb = get_resilient_ydl_opts(base_opts, client_preset="mweb")
+                    with yt_dlp.YoutubeDL(ydl_opts_fb) as ydl:
+                        ydl.download([video_url])
 
                 # Locate downloaded audio file
                 found_files = list(Path(tmpdir).glob(f"{video_id}.*"))

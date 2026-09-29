@@ -82,9 +82,217 @@ export async function generatePrd(sessionId: string, customInstructions?: string
   return res.json();
 }
 
-export function getExportUrl(sessionId: string, format: "markdown" | "json" | "ai-bundle"): string {
+export function getExportUrl(sessionId: string, format: "markdown" | "json" | "ai-bundle" | "html"): string {
   const base = getBaseUrl();
   return `${base}/research/${sessionId}/export/${format}`;
+}
+
+// ============================================================================
+// Discovery (velocity-ranked topic suggestions)
+// ============================================================================
+
+export interface DiscoveryTopic {
+  topic: string;
+  mentions: number;
+  platforms: string[];
+  velocity_score: number;
+  top_engagement: number;
+  example: string;
+  momentum_label: string;
+  suggested_query: string;
+  suggested_channels: string[];
+}
+
+export async function discoverTopics(category?: string, maxTopics = 8): Promise<DiscoveryTopic[]> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/discover`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category, max_topics: maxTopics }),
+  });
+  if (!res.ok) {
+    throw new Error(`Discovery failed: ${res.statusText}`);
+  }
+  const data = await res.json();
+  return data.topics || [];
+}
+
+// ============================================================================
+// Watchlists (trend monitoring with delta diffs)
+// ============================================================================
+
+export interface Watchlist {
+  id: string;
+  topic: string;
+  channels: string[];
+  subreddits: string[];
+  interval_hours: number;
+  active: boolean;
+  last_run_at: string | null;
+  last_session_id: string | null;
+  runs: number;
+}
+
+export interface WatchlistDelta {
+  has_previous: boolean;
+  status: string;
+  new_themes: string[];
+  resolved_themes: string[];
+  worsening_themes: { title: string; severity_delta: number; volume_delta: number }[];
+  improving_themes: { title: string; severity_delta: number; volume_delta: number }[];
+  volume_delta: number;
+}
+
+export interface WatchlistDetail extends Watchlist {
+  snapshots: { id: string; session_id: string | null; created_at: string | null; metrics: any }[];
+}
+
+export async function listWatchlists(): Promise<Watchlist[]> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/research/watchlists`, { cache: "no-store" });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createWatchlist(payload: {
+  topic: string;
+  channels?: string[];
+  interval_hours?: number;
+}): Promise<Watchlist> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/watchlists`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Failed to create watchlist: ${res.statusText}`);
+  return res.json();
+}
+
+export async function deleteWatchlist(id: string): Promise<void> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/watchlists/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Failed to delete watchlist: ${res.statusText}`);
+}
+
+export async function runWatchlist(id: string): Promise<{ session_id: string; watchlist_id: string }> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/watchlists/${id}/run`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ max_items: 60 }),
+  });
+  if (!res.ok) throw new Error(`Failed to run watchlist: ${res.statusText}`);
+  return res.json();
+}
+
+export async function getWatchlistDetail(id: string): Promise<WatchlistDetail | null> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/research/watchlists/${id}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================================
+// Automation Rules (event-triggered webhooks)
+// ============================================================================
+
+export interface AutomationRule {
+  id: string;
+  name: string;
+  event_type: "research.completed" | "seo.completed";
+  conditions: Record<string, any>;
+  action_type: string;
+  action_config: Record<string, any>;
+  enabled: boolean;
+  fire_count: number;
+  last_fired_at: string | null;
+}
+
+export async function listAutomations(): Promise<AutomationRule[]> {
+  const base = getBaseUrl();
+  try {
+    const res = await fetch(`${base}/research/automations`, { cache: "no-store" });
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function createAutomation(payload: {
+  name: string;
+  event_type: string;
+  conditions?: Record<string, any>;
+  action_type?: string;
+  action_config: Record<string, any>;
+}): Promise<{ id: string }> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/automations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => "");
+    throw new Error(`Failed to create automation: ${errorText || res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function deleteAutomation(id: string): Promise<void> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/automations/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`Failed to delete automation: ${res.statusText}`);
+}
+
+export async function toggleAutomation(id: string): Promise<{ id: string; enabled: boolean }> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/research/automations/${id}/toggle`, { method: "POST" });
+  if (!res.ok) throw new Error(`Failed to toggle automation: ${res.statusText}`);
+  return res.json();
+}
+
+// ============================================================================
+// Competitor Brief (SERP content-gap analysis)
+// ============================================================================
+
+export interface CompetitorBrief {
+  success: boolean;
+  keyword: string;
+  competitors_found: number;
+  competitors_analyzed: number;
+  serp_stats: {
+    avg_word_count: number;
+    avg_h2_sections: number;
+    schema_adoption_percent: number;
+    table_adoption_percent: number;
+    faq_adoption_percent: number;
+  };
+  must_cover_topics: string[];
+  recommendations: string[];
+  competitors: any[];
+}
+
+export async function generateCompetitorBrief(keyword: string, ownDomain?: string): Promise<CompetitorBrief> {
+  const base = getBaseUrl();
+  const res = await fetch(`${base}/seo/competitor-brief`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ keyword, own_domain: ownDomain || undefined }),
+  });
+  if (!res.ok) {
+    throw new Error(`Competitor brief failed: ${res.statusText}`);
+  }
+  return res.json();
 }
 
 export async function saveChannelCredentials(credentials: Record<string, string>): Promise<any> {
@@ -120,7 +328,7 @@ export function getSeoEventSourceUrl(auditId: string): string {
   return `${base}/seo/audit/${auditId}/events`;
 }
 
-export function getSeoExportUrl(auditId: string, format: "markdown" | "json"): string {
+export function getSeoExportUrl(auditId: string, format: "markdown" | "json" | "html"): string {
   const base = getBaseUrl();
   return `${base}/seo/audit/${auditId}/export/${format}`;
 }

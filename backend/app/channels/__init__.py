@@ -15,6 +15,10 @@ from app.channels.xueqiu import XueqiuChannel
 from app.channels.bilibili import BilibiliChannel
 from app.channels.linkedin import LinkedInChannel
 from app.channels.exa import ExaChannel
+from app.channels.polymarket import PolymarketChannel
+from app.channels.arxiv import ArxivChannel
+from app.channels.techmeme import TechmemeChannel
+from app.channels.hiring import HiringSignalsChannel
 
 CHANNEL_REGISTRY: Dict[str, BaseChannel] = {
     "google": GoogleChannel(),
@@ -30,6 +34,10 @@ CHANNEL_REGISTRY: Dict[str, BaseChannel] = {
     "bilibili": BilibiliChannel(),
     "linkedin": LinkedInChannel(),
     "exa": ExaChannel(),
+    "polymarket": PolymarketChannel(),
+    "arxiv": ArxivChannel(),
+    "techmeme": TechmemeChannel(),
+    "hiring": HiringSignalsChannel(),
 }
 
 def get_channel(name: str) -> Optional[BaseChannel]:

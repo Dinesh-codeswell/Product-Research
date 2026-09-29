@@ -2,7 +2,8 @@
 import asyncio
 import json
 import logging
-from typing import List, Dict, Any
+from datetime import datetime
+from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db, AsyncSessionLocal
 from app.core.config import settings
 from app.models.entities import ResearchSession, RawFeedback, InsightCluster, EvidenceQuote, GeneratedSpec
+from app.models.workflow_entities import WatchlistTopic, WatchlistSnapshot, AutomationRule, AutomationLog
 from app.models.schemas import (
     StartResearchRequest,
     ResearchSessionResponse,
@@ -29,6 +31,13 @@ from app.engine.cleaner import TextCleaner
 from app.engine.embedder import EmbeddingEngine
 from app.engine.clusterer import SemanticClusterer
 from app.engine.synthesizer import SynthesisEngine
+from app.engine.signals import MomentumScorer, CrossSourceMerger, merge_cluster_duplicates
+from app.engine.discovery import DiscoveryEngine
+from app.engine.watchlist import build_snapshot, diff_snapshots
+from app.engine.automations import dispatch_event
+from app.engine.brief_renderer import render_brief_html
+from app.engine.diagram_agent import DiagramAgent
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/research", tags=["Research"])
@@ -162,8 +171,22 @@ async def run_research_pipeline(
             publish_event(session_id, "scraped", 55, f"Harvested {len(all_raw_items)} signals across {len(channels)} channels.")
 
             # 2. Cleaning & Laya System 1 Triage
-            publish_event(session_id, "cleaning", 68, f"Executing Laya System 1 semantic triage & noise reduction across {len(all_raw_items)} signals...")
+            publish_event(session_id, "cleaning", 62, f"Executing Laya System 1 semantic triage & noise reduction across {len(all_raw_items)} signals...")
             cleaned_items = cleaner.deduplicate_and_clean(all_raw_items, query=query)
+
+            # 2b. Momentum scoring & cross-source story merging (last30days pattern:
+            # rank by what real people engage with; same story on multiple platforms
+            # merges into one corroborated signal)
+            scorer = MomentumScorer()
+            cleaned_items = scorer.score_items(cleaned_items)
+            merger = CrossSourceMerger()
+            cleaned_items, merge_records = merger.merge(cleaned_items)
+            cross_confirmed = sum(
+                1 for it in cleaned_items if (it.raw_metadata or {}).get("cross_source_confirmed")
+            )
+            cleaned_items.sort(key=MomentumScorer.rank_key)
+            if merge_records:
+                logger.info(f"Cross-source merge: {len(merge_records)} signals folded into corroborated stories ({cross_confirmed} confirmed stories)")
 
             # Persist raw feedbacks
             for it in cleaned_items:
@@ -188,6 +211,10 @@ async def run_research_pipeline(
             texts = [it.content for it in cleaned_items]
             embeddings = embedder.generate_embeddings(texts)
             clusters_data = clusterer.cluster_items(cleaned_items, embeddings)
+
+            # 3b. Merge lookalike clusters (same theme, different wording) so one
+            # story = one cluster with multi-platform evidence
+            clusters_data = merge_cluster_duplicates(clusters_data)
 
             # Persist clusters & quotes
             for c_data in clusters_data:
@@ -226,6 +253,28 @@ async def run_research_pipeline(
                 "clusters_count": len(clusters_data),
                 "total_items": len(cleaned_items)
             })
+
+            # P3: Fire any matching automation rules (webhooks) — never blocks the pipeline
+            try:
+                async with AsyncSessionLocal() as auto_db:
+                    await dispatch_event(auto_db, "research.completed", {
+                        "session_id": session_id,
+                        "query": query,
+                        "clusters_count": len(clusters_data),
+                        "total_items": len(cleaned_items),
+                        "channels": channels,
+                        "clusters": [
+                            {
+                                "title": c.get("title"),
+                                "category": c.get("category"),
+                                "severity_score": c.get("severity_score"),
+                                "item_count": c.get("item_count"),
+                            }
+                            for c in clusters_data[:10]
+                        ],
+                    })
+            except Exception as auto_err:
+                logger.warning(f"Automation dispatch skipped for {session_id}: {auto_err}")
 
         except Exception as e:
             logger.error(f"Error executing research pipeline: {e}", exc_info=True)
@@ -372,6 +421,58 @@ async def export_report(session_id: str, format: str, db: AsyncSession = Depends
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    if format == "html":
+        # P2: Single-file HTML brief (self-contained, prints to PDF)
+        brief_payload = {
+            "query": session.query,
+            "channels": session.channels_used or [],
+            "total_items": session.total_items_scraped,
+            "summary": session.executive_summary,
+            "clusters": [
+                {
+                    "title": c.title,
+                    "category": c.category,
+                    "description": c.description,
+                    "severity_score": c.severity_score,
+                    "item_count": c.item_count,
+                    "quotes": [
+                        {
+                            "quote_text": q.quote_text,
+                            "permalink": q.permalink,
+                            "source_author": q.source_author,
+                            "source_channel": q.source_channel,
+                            "engagement_score": q.engagement_score,
+                        }
+                        for q in c.quotes
+                    ],
+                }
+                for c in session.clusters
+            ],
+            "feedbacks": [
+                {
+                    "channel": fb.channel,
+                    "url": fb.url,
+                    "title": fb.title,
+                    "engagement": fb.engagement_score,
+                }
+                for fb in (session.feedbacks or [])
+            ],
+        }
+        # P3: embed an auto-generated diagram when a PRD exists
+        try:
+            if session.specs:
+                source_md = max(session.specs, key=lambda s: s.created_at).markdown_content
+                diagram = DiagramAgent().generate(source_md, title=f"{session.query[:48]}")
+                brief_payload["diagram_svg"] = diagram.get("svg")
+        except Exception as diag_err:
+            logger.debug(f"Diagram generation skipped: {diag_err}")
+        html_content = render_brief_html("research", brief_payload)
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=pulseradar_brief_{session_id}.html"},
+        )
+
     if format == "json":
         data = {
             "id": session.id,
@@ -512,6 +613,304 @@ async def get_channels_status():
     from app.channels import run_channel_doctor
     doc = await run_channel_doctor()
     return doc.get("channels", {})
+
+@router.post("/{session_id}/diagram")
+async def generate_session_diagram(session_id: str, db: AsyncSession = Depends(get_db)):
+    """Generates an SVG architecture/flow diagram from the session's PRD or
+    executive summary (PaperBanana pattern: plan → visualize → critique)."""
+    stmt = (
+        select(ResearchSession)
+        .options(selectinload(ResearchSession.specs), selectinload(ResearchSession.clusters))
+        .where(ResearchSession.id == session_id)
+    )
+    res = await db.execute(stmt)
+    session = res.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Research session not found")
+
+    # Prefer the latest PRD; fall back to executive summary + cluster titles
+    source_md = ""
+    if session.specs:
+        source_md = max(session.specs, key=lambda s: s.created_at).markdown_content
+    if not source_md:
+        cluster_lines = "\n".join(f"## {c.title}" for c in session.clusters)
+        source_md = f"## Problem\n{session.executive_summary or session.query}\n{cluster_lines}"
+
+    agent = DiagramAgent()
+    diagram = agent.generate(source_md, title=f"{session.query[:48]}")
+    return diagram
+
+
+# --- P0: Discovery Mode (velocity-ranked topic suggestions) ---
+class DiscoverRequest(BaseModel):
+    category: Optional[str] = None
+    max_topics: int = 8
+
+
+@router.post("/discover")
+async def discover_topics(payload: DiscoverRequest):
+    """Sweeps HN, arXiv, Polymarket & Techmeme in parallel and returns
+    velocity-ranked topic briefs, each pre-resolved into a runnable query."""
+    engine = DiscoveryEngine()
+    return await engine.discover(category=payload.category, max_topics=payload.max_topics)
+
+
+# --- P2: Watchlists (trend monitoring with delta diffs) ---
+class WatchlistCreateRequest(BaseModel):
+    topic: str
+    channels: Optional[List[str]] = None
+    subreddits: Optional[List[str]] = None
+    interval_hours: int = 24
+
+
+class WatchlistRunRequest(BaseModel):
+    max_items: int = 60
+
+
+def _watchlist_to_dict(w: WatchlistTopic, include_snapshots: bool = False) -> Dict[str, Any]:
+    data = {
+        "id": w.id,
+        "topic": w.topic,
+        "channels": w.channels or [],
+        "subreddits": w.subreddits or [],
+        "interval_hours": w.interval_hours,
+        "active": w.active,
+        "last_run_at": w.last_run_at.isoformat() if w.last_run_at else None,
+        "last_session_id": w.last_session_id,
+        "created_at": w.created_at.isoformat() if w.created_at else None,
+        "runs": len(w.snapshots) if hasattr(w, "snapshots") else 0,
+    }
+    if include_snapshots:
+        data["snapshots"] = [
+            {
+                "id": s.id,
+                "session_id": s.session_id,
+                "created_at": s.created_at.isoformat() if s.created_at else None,
+                "metrics": s.metrics,
+            }
+            for s in sorted(w.snapshots, key=lambda x: x.created_at or x.id)[-20:]
+        ]
+    return data
+
+
+@router.get("/watchlists")
+async def list_watchlists(db: AsyncSession = Depends(get_db)):
+    stmt = select(WatchlistTopic).order_by(WatchlistTopic.created_at.desc()).limit(100)
+    res = await db.execute(stmt)
+    return [_watchlist_to_dict(w) for w in res.scalars().all()]
+
+
+@router.post("/watchlists")
+async def create_watchlist(payload: WatchlistCreateRequest, db: AsyncSession = Depends(get_db)):
+    w = WatchlistTopic(
+        topic=payload.topic.strip(),
+        channels=payload.channels or ["reddit", "youtube", "hackernews"],
+        subreddits=payload.subreddits or [],
+        interval_hours=max(1, payload.interval_hours),
+    )
+    db.add(w)
+    await db.commit()
+    await db.refresh(w)
+    return _watchlist_to_dict(w)
+
+
+@router.delete("/watchlists/{watchlist_id}")
+async def delete_watchlist(watchlist_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(WatchlistTopic).where(WatchlistTopic.id == watchlist_id))
+    w = res.scalar_one_or_none()
+    if not w:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    await db.delete(w)
+    await db.commit()
+    return {"status": "deleted", "id": watchlist_id}
+
+
+@router.post("/watchlists/{watchlist_id}/run")
+async def run_watchlist(watchlist_id: str, payload: WatchlistRunRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
+    """Runs a fresh research sweep for the watchlist topic, snapshots the
+    resulting themes, and diffs against the previous run's snapshot."""
+    res = await db.execute(select(WatchlistTopic).where(WatchlistTopic.id == watchlist_id))
+    w = res.scalar_one_or_none()
+    if not w:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    # Create the underlying research session (reuses the whole pipeline)
+    new_session = ResearchSession(
+        query=w.topic,
+        channels_used=w.channels or ["reddit", "youtube", "hackernews"],
+        status="QUEUED",
+        execution_mode="focus",
+    )
+    db.add(new_session)
+    await db.commit()
+    await db.refresh(new_session)
+
+    session_event_queues[new_session.id] = []
+
+    watchlist_id_val = w.id
+    channels_val = list(w.channels or ["reddit", "youtube", "hackernews"])
+    topic_val = w.topic
+
+    background_tasks.add_task(
+        run_watchlist_pipeline,
+        watchlist_id=watchlist_id_val,
+        session_id=new_session.id,
+        topic=topic_val,
+        channels=channels_val,
+        subreddits=list(w.subreddits or []),
+        max_items=payload.max_items,
+    )
+
+    return {"session_id": new_session.id, "watchlist_id": watchlist_id_val, "status": "QUEUED"}
+
+
+async def run_watchlist_pipeline(watchlist_id: str, session_id: str, topic: str, channels: List[str], subreddits: List[str], max_items: int):
+    """Wrapper that runs the standard pipeline, then snapshots + diffs for the watchlist."""
+    await run_research_pipeline(
+        session_id=session_id,
+        query=topic,
+        channels=channels,
+        subreddits=subreddits,
+        max_items=max_items,
+        execution_mode="focus",
+        browser_approved=False,
+    )
+
+    try:
+        async with AsyncSessionLocal() as db:
+            res = await db.execute(select(ResearchSession).where(ResearchSession.id == session_id))
+            session = res.scalar_one_or_none()
+            if not session or session.status != "COMPLETED":
+                return
+
+            clusters_payload = [
+                {
+                    "title": c.title,
+                    "category": c.category,
+                    "severity_score": c.severity_score,
+                    "item_count": c.item_count,
+                    "quotes": [
+                        {"quote_text": q.quote_text, "permalink": q.permalink}
+                        for q in (c.quotes or [])[:1]
+                    ],
+                }
+                for c in session.clusters
+            ]
+            current_snapshot = build_snapshot(clusters_payload, session.total_items_scraped or 0, topic)
+
+            # Fetch previous snapshot before inserting the new one
+            prev_stmt = (
+                select(WatchlistSnapshot)
+                .where(WatchlistSnapshot.watchlist_id == watchlist_id)
+                .order_by(WatchlistSnapshot.created_at.desc())
+                .limit(1)
+            )
+            prev_res = await db.execute(prev_stmt)
+            prev_snapshot = prev_res.scalar_one_or_none()
+            previous_metrics = prev_snapshot.metrics if prev_snapshot else None
+
+            delta = diff_snapshots(current_snapshot, previous_metrics)
+            current_snapshot["delta"] = delta
+
+            db.add(WatchlistSnapshot(
+                watchlist_id=watchlist_id,
+                session_id=session_id,
+                metrics=current_snapshot,
+            ))
+
+            w_res = await db.execute(select(WatchlistTopic).where(WatchlistTopic.id == watchlist_id))
+            w = w_res.scalar_one_or_none()
+            if w:
+                w.last_run_at = datetime.utcnow()
+                w.last_session_id = session_id
+            await db.commit()
+            logger.info(f"Watchlist {watchlist_id} snapshot stored (delta status: {delta.get('status')})")
+    except Exception as e:
+        logger.error(f"Watchlist snapshot failed for {watchlist_id}: {e}", exc_info=True)
+
+
+@router.get("/watchlists/{watchlist_id}")
+async def get_watchlist(watchlist_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(WatchlistTopic).where(WatchlistTopic.id == watchlist_id))
+    w = res.scalar_one_or_none()
+    if not w:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    return _watchlist_to_dict(w, include_snapshots=True)
+
+
+# --- P3: Automation Rules (event-triggered webhooks) ---
+class AutomationRuleRequest(BaseModel):
+    name: str
+    event_type: str  # research.completed | seo.completed
+    conditions: Optional[Dict[str, Any]] = None
+    action_type: str = "webhook"
+    action_config: Optional[Dict[str, Any]] = None
+
+
+@router.get("/automations")
+async def list_automations(db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(AutomationRule).order_by(AutomationRule.created_at.desc()).limit(100))
+    rules = res.scalars().all()
+    return [
+        {
+            "id": r.id,
+            "name": r.name,
+            "event_type": r.event_type,
+            "conditions": r.conditions or {},
+            "action_type": r.action_type,
+            "action_config": {k: ("***" if k == "secret" else v) for k, v in (r.action_config or {}).items()},
+            "enabled": r.enabled,
+            "fire_count": r.fire_count,
+            "last_fired_at": r.last_fired_at.isoformat() if r.last_fired_at else None,
+        }
+        for r in rules
+    ]
+
+
+@router.post("/automations")
+async def create_automation(payload: AutomationRuleRequest, db: AsyncSession = Depends(get_db)):
+    if payload.event_type not in ("research.completed", "seo.completed"):
+        raise HTTPException(status_code=400, detail="event_type must be 'research.completed' or 'seo.completed'")
+    if payload.action_type != "webhook":
+        raise HTTPException(status_code=400, detail="Only 'webhook' actions are supported currently")
+    url = (payload.action_config or {}).get("url")
+    if not url or not str(url).startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="action_config.url must be a valid http(s) URL")
+
+    rule = AutomationRule(
+        name=payload.name.strip(),
+        event_type=payload.event_type,
+        conditions=payload.conditions or {},
+        action_type=payload.action_type,
+        action_config=payload.action_config or {},
+    )
+    db.add(rule)
+    await db.commit()
+    await db.refresh(rule)
+    return {"id": rule.id, "status": "created", "name": rule.name}
+
+
+@router.delete("/automations/{rule_id}")
+async def delete_automation(rule_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(AutomationRule).where(AutomationRule.id == rule_id))
+    rule = res.scalar_one_or_none()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Automation rule not found")
+    await db.delete(rule)
+    await db.commit()
+    return {"status": "deleted", "id": rule_id}
+
+
+@router.post("/automations/{rule_id}/toggle")
+async def toggle_automation(rule_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(AutomationRule).where(AutomationRule.id == rule_id))
+    rule = res.scalar_one_or_none()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Automation rule not found")
+    rule.enabled = not rule.enabled
+    await db.commit()
+    return {"id": rule.id, "enabled": rule.enabled}
+
 
 @settings_router.post("/channels")
 async def update_channel_credentials(creds: Dict[str, str]):

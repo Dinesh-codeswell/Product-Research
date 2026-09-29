@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Radio, Github, Key, Plus, ExternalLink, Globe, Sparkles, Cpu, FileSpreadsheet } from "lucide-react";
+import { Radio, Github, Key, Plus, ExternalLink, Globe, Sparkles, Cpu, FileSpreadsheet, Bell } from "lucide-react";
 import { ChannelSettingsModal } from "@/components/ChannelSettingsModal";
 
 export function Navbar() {
@@ -12,6 +12,7 @@ export function Navbar() {
   const isSeo = pathname?.startsWith("/seo");
   const isModels = pathname?.startsWith("/models");
   const isOffice = pathname?.startsWith("/office");
+  const isWatchlists = pathname?.startsWith("/watchlists");
 
   return (
     <>
@@ -78,6 +79,17 @@ export function Navbar() {
             >
               <FileSpreadsheet className="h-3 w-3 text-[#9281f7]" />
               <span>Office Studio</span>
+            </Link>
+            <Link
+              href="/watchlists"
+              className={`px-3 py-1 rounded-[6px] text-xs font-mono flex items-center gap-1.5 transition-all ${
+                isWatchlists
+                  ? "bg-[#9281f7]/20 border border-[#9281f7]/40 text-[#ffffff] font-medium"
+                  : "text-[#a1a4a5] hover:text-[#ffffff]"
+              }`}
+            >
+              <Bell className="h-3 w-3 text-[#ffca16]" />
+              <span>Watchlists</span>
             </Link>
           </nav>
 

@@ -195,6 +195,16 @@ export default function SeoAuditPage() {
           </a>
 
           <a
+            href={getSeoExportUrl(auditId, "html")}
+            download
+            className="px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#3ad389]/50 hover:border-[#3ad389] text-xs font-sans text-[#3ad389] hover:text-[#ffffff] flex items-center gap-1.5 transition-all duration-150"
+            title="Download single-file interactive HTML brief (self-contained, prints to PDF)"
+          >
+            <Globe className="h-3.5 w-3.5 text-[#3ad389]" />
+            <span>HTML Brief</span>
+          </a>
+
+          <a
             href={getSeoExportUrl(auditId, "json")}
             download
             className="px-3 py-2 rounded-[6px] bg-[#000000] border border-[#292d30] hover:border-[#ffffff] text-xs font-sans text-[#a1a4a5] hover:text-[#ffffff] flex items-center gap-1.5 transition-all duration-150"

@@ -75,6 +75,8 @@ ai_model_config.json
 # Vendored upstream reference repositories (cloned for engine parity studies only)
 YTSage-main/
 ytfetcher-main/
+New Projects/
+"New Projects"/
 
 # TypeScript incremental build cache & local type-check logs
 frontend/tsconfig.tsbuildinfo

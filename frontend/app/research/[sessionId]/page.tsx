@@ -14,7 +14,8 @@ import {
   Radio,
   Monitor,
   Sparkles,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Globe
 } from "lucide-react";
 import { getResearchSession, getExportUrl, getEventSourceUrl, getOfficeExportXlsxUrl } from "@/lib/api";
 import { ResearchSession, InsightCluster, SSEProgressEvent, BrowserActionEvent } from "@/lib/types";
@@ -227,6 +228,16 @@ export default function ResearchSessionPage() {
           >
             <Download className="h-3.5 w-3.5 text-[#a1a4a5]" />
             <span>Report (.md)</span>
+          </a>
+
+          <a
+            href={getExportUrl(sessionId, "html")}
+            download
+            className="px-3.5 py-2 rounded-[6px] bg-[#000000] border border-[#3ad389]/50 hover:border-[#3ad389] text-xs font-sans text-[#3ad389] hover:text-[#ffffff] flex items-center gap-1.5 transition-all duration-150"
+            title="Download single-file interactive HTML brief (self-contained, prints to PDF)"
+          >
+            <Globe className="h-3.5 w-3.5 text-[#3ad389]" />
+            <span>HTML Brief</span>
           </a>
 
           <a

@@ -11,7 +11,11 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import yt_dlp
 
-from app.engine.youtube_transcript import extract_video_id, format_seconds_to_timestamp
+from app.engine.youtube_transcript import (
+    extract_video_id,
+    format_seconds_to_timestamp,
+    get_resilient_ydl_opts,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +48,16 @@ class YouTubeDownloadEngine:
             return {"success": False, "error": f"Invalid YouTube URL or ID: {url_or_id}"}
 
         video_url = f"https://www.youtube.com/watch?v={video_id}"
-        ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "skip_download": True,
-            "extract_flat": False,
-        }
+        # Resilient opts: realistic headers, player_client extractor args, auto-resolved
+        # cookies (YOUTUBE_COOKIES(_FILE) env / data/cookies.txt) and proxy support.
+        # Bare opts here were the root cause of "Sign in to confirm you're not a bot".
+        ydl_opts = get_resilient_ydl_opts(
+            {
+                "skip_download": True,
+                "extract_flat": False,
+            },
+            client_preset="web_embedded",
+        )
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -229,11 +237,12 @@ class YouTubeDownloadEngine:
 
         temp_dir = tempfile.mkdtemp(prefix="pulseradar_dl_")
 
-        ydl_opts: Dict[str, Any] = {
-            "quiet": True,
-            "no_warnings": True,
-            "force_overwrites": True,
-        }
+        # Resilient opts: realistic headers, player_client extractor args, auto-resolved
+        # cookies (YOUTUBE_COOKIES(_FILE) env / data/cookies.txt) and proxy support.
+        ydl_opts: Dict[str, Any] = get_resilient_ydl_opts(
+            {"force_overwrites": True},
+            client_preset="web_embedded",
+        )
 
         if media_type == "video":
             # Video Download (with best audio merge)
@@ -300,10 +309,56 @@ class YouTubeDownloadEngine:
         else:
             raise ValueError(f"Unsupported media_type: {media_type}")
 
-        # Execute yt-dlp download
+        # Execute yt-dlp download with bot-check fallback chain:
+        # 1) web_embedded client (+cookies/proxy if configured)
+        # 2) mweb client
+        # 3) cookies-from-browser (same trick YTSage uses when the user hits bot walls)
         logger.info(f"Executing yt-dlp download for {video_id} (Type: {media_type}, Target: {out_template})")
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([video_url])
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([video_url])
+        except yt_dlp.utils.DownloadError as dl_err:
+            err_text = str(dl_err)
+            if "Sign in to confirm" not in err_text and "bot" not in err_text.lower():
+                raise
+            logger.warning(f"YouTube bot-check on download for {video_id}; retrying with fallback clients...")
+
+            for preset in ("mweb", "android"):
+                try:
+                    fallback_opts = get_resilient_ydl_opts(
+                        {"force_overwrites": True}, client_preset=preset
+                    )
+                    with yt_dlp.YoutubeDL(fallback_opts) as ydl:
+                        ydl.download([video_url])
+                    break
+                except Exception as fb_err:
+                    logger.debug(f"Fallback client '{preset}' failed for {video_id}: {fb_err}")
+            else:
+                # Last resort: borrow cookies from the local browser (YTSage technique).
+                # yt-dlp only decrypts cookies when the browser is closed on Windows.
+                browser_cookie_err: Optional[Exception] = None
+                for browser in ("chrome", "edge", "firefox", "brave"):
+                    try:
+                        browser_opts = dict(ydl_opts)
+                        browser_opts.pop("extractor_args", None)
+                        browser_opts["cookiesfrombrowser"] = (browser, None, None, None)
+                        with yt_dlp.YoutubeDL(browser_opts) as ydl:
+                            ydl.download([video_url])
+                        logger.info(f"Browser cookies from '{browser}' resolved bot-check for {video_id}")
+                        browser_cookie_err = None
+                        break
+                    except Exception as bc_err:
+                        browser_cookie_err = bc_err
+                        logger.debug(f"cookies-from-browser '{browser}' failed: {bc_err}")
+                if browser_cookie_err is not None:
+                    raise RuntimeError(
+                        "YouTube bot-verification blocked this download. "
+                        "Fix options (any one): 1) export browser cookies to data/cookies.txt "
+                        "or set YOUTUBE_COOKIES / YOUTUBE_COOKIES_FILE env var; "
+                        "2) close your browser so cookies-from-browser can read it; "
+                        "3) set YOUTUBE_PROXY for a residential IP. "
+                        f"Original error: {err_text}"
+                    ) from dl_err
 
         # Locate downloaded file in temp_dir
         downloaded_files = [

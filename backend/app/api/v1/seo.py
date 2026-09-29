@@ -13,6 +13,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db, AsyncSessionLocal
 from app.models.seo_entities import SeoAuditSession, SeoBaselineSnapshot
 from app.seo.engine import SeoAuditEngine
+from app.seo.competitor_pages import CompetitorPagesAnalyzer
+from app.seo.sitemap_auditor import SitemapAuditor
+from app.engine.brief_renderer import render_brief_html
 
 logger = logging.getLogger("pulseradar.seo")
 
@@ -32,6 +35,11 @@ class GenerateSchemaRequest(BaseModel):
 
 class GenerateMetaRequest(BaseModel):
     url: str
+
+
+class CompetitorBriefRequest(BaseModel):
+    keyword: str
+    own_domain: Optional[str] = None
 
 def publish_seo_event(audit_id: str, stage: str, progress: int, message: str, data: Optional[Dict[str, Any]] = None):
     evt = {
@@ -231,6 +239,28 @@ async def generate_meta_direct(payload: GenerateMetaRequest):
     meta = engine.meta_generator.generate(payload.url, crawl_data)
     return meta
 
+@router.post("/competitor-brief")
+async def generate_competitor_brief(payload: CompetitorBriefRequest):
+    """Analyzes the current SERP for a keyword and returns a content-gap brief
+    (notfair `competitor-pages` pattern)."""
+    analyzer = CompetitorPagesAnalyzer()
+    try:
+        return await analyzer.analyze(payload.keyword, own_domain=payload.own_domain)
+    except Exception as e:
+        logger.error(f"Competitor brief failed for '{payload.keyword}': {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Competitor analysis failed: {str(e)[:200]}")
+
+
+@router.post("/sitemap-audit")
+async def run_sitemap_audit(payload: GenerateMetaRequest):
+    """Standalone sitemap audit for any domain (no full audit required)."""
+    auditor = SitemapAuditor()
+    try:
+        return await auditor.audit(payload.url)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Sitemap audit failed: {str(e)[:200]}")
+
+
 @router.get("/audit/{audit_id}/export/{format}")
 async def export_seo_audit(audit_id: str, format: str = "markdown", db: AsyncSession = Depends(get_db)):
     """Exports the SEO & GEO Audit Dossier in Markdown or JSON format."""
@@ -239,6 +269,27 @@ async def export_seo_audit(audit_id: str, format: str = "markdown", db: AsyncSes
     session = res.scalar_one_or_none()
     if not session:
         raise HTTPException(status_code=404, detail="SEO audit session not found")
+
+    if format == "html":
+        # P2: Single-file HTML brief (self-contained, prints to PDF)
+        brief_payload = {
+            "url": session.url,
+            "domain": session.domain,
+            "audit_type": session.audit_type,
+            "overall_score": session.overall_score,
+            "technical_score": session.technical_score,
+            "geo_readiness_score": session.geo_readiness_score,
+            "onpage_score": session.onpage_score,
+            "image_score": session.image_score,
+            "executive_summary": session.executive_summary,
+            "results": session.results or {},
+        }
+        html_content = render_brief_html("seo", brief_payload)
+        return Response(
+            content=html_content,
+            media_type="text/html",
+            headers={"Content-Disposition": f"attachment; filename=seo_brief_{session.id}.html"},
+        )
 
     if format == "json":
         return session.results or {"error": "No results available"}
@@ -313,6 +364,41 @@ async def export_seo_audit(audit_id: str, format: str = "markdown", db: AsyncSes
         ])
         for f in rendering.get("findings", []):
             lines.append(f"- `[{f.get('severity')}]` **{f.get('title')}:** {f.get('description')}")
+
+    # --- New P1 pack sections ---
+    links = results.get("link_integrity", {})
+    sitemap = results.get("sitemap", {})
+    intl = results.get("international", {})
+    universe = results.get("keyword_universe", {})
+    plan = results.get("content_plan", {})
+
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## 5. Link Integrity, Sitemap & International Targeting",
+        f"- **Link Health:** {links.get('link_health_score', 'n/a')}/100 — {links.get('broken_count', 0)} broken / {links.get('checked', 0)} sampled",
+        f"- **Sitemap:** {('Found at ' + sitemap.get('sitemap_url', '')) if sitemap.get('success') else 'Not found'} — {sitemap.get('url_count', 0)} URLs, freshness {sitemap.get('freshness_score', 'n/a')}/100",
+        f"- **International:** score {intl.get('international_score', 'n/a')}/100 — {intl.get('hreflang_count', 0)} hreflang entries, HTML lang '{intl.get('html_lang') or 'unset'}'",
+    ])
+    for issue in (links.get("issues", []) + sitemap.get("issues", []) + intl.get("issues", []))[:12]:
+        lines.append(f"- `[{issue.get('severity')}]` **{issue.get('field')}:** {issue.get('message')}")
+
+    lines.extend([
+        "",
+        "---",
+        "",
+        "## 5b. Keyword Universe & Editorial Content Plan",
+        f"- Universe size: {universe.get('universe_size', 0)} keywords across {len(universe.get('topic_clusters', []))} topic clusters",
+    ])
+    for c in universe.get("topic_clusters", [])[:6]:
+        lines.append(f"- **Cluster: {c.get('cluster_topic')}** — dominant intent: {c.get('dominant_intent')}; {c.get('keyword_count')} keywords")
+    lines.append("")
+    lines.append("### Dated Editorial Calendar")
+    for task in plan.get("calendar", [])[:12]:
+        lines.append(
+            f"- `{task.get('publish_date', 'TBD')}` **{task.get('title')}** ({task.get('type')}, P{task.get('priority')}) → {task.get('target_url', '')}"
+        )
 
     lines.extend([
         "",

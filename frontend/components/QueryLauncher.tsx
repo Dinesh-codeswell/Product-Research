@@ -29,7 +29,8 @@ import {
   Square,
   HelpCircle
 } from "lucide-react";
-import { startResearch } from "@/lib/api";
+import { startResearch, discoverTopics } from "@/lib/api";
+import type { DiscoveryTopic } from "@/lib/api";
 import { ChannelSettingsModal } from "@/components/ChannelSettingsModal";
 import { BrowserApprovalModal } from "@/components/BrowserApprovalModal";
 import { DiagnosticDoctorModal } from "@/components/DiagnosticDoctorModal";
@@ -63,9 +64,14 @@ const ALL_AVAILABLE_CHANNELS: ChannelDef[] = [
   // Business & Finance
   { id: "linkedin", label: "LinkedIn B2B", icon: Briefcase, domain: "linkedin.com", category: "biz_fin", badge: "B2B Pulse", tier: 0 },
   { id: "xueqiu", label: "Xueqiu Finance", icon: TrendingUp, domain: "xueqiu.com", category: "biz_fin", badge: "Market Sentiment", tier: 0 },
+  { id: "hiring", label: "Hiring Signals", icon: Activity, domain: "remoteok.com", category: "biz_fin", badge: "Headcount", tier: 0 },
+  // Emerging Signals (last30days-style)
+  { id: "polymarket", label: "Polymarket Odds", icon: TrendingUp, domain: "polymarket.com", category: "biz_fin", badge: "Real Money", tier: 0 },
+  { id: "arxiv", label: "arXiv Research", icon: BookOpen, domain: "arxiv.org", category: "web", badge: "Preprints", tier: 0 },
+  { id: "techmeme", label: "Techmeme Editorial", icon: Globe, domain: "techmeme.com", category: "web", badge: "Press Pulse", tier: 0 },
 ];
 
-const RECOMMENDED_CHANNELS = ["google", "reddit", "youtube", "twitter", "hackernews", "v2ex", "github"];
+const RECOMMENDED_CHANNELS = ["google", "reddit", "youtube", "twitter", "hackernews", "v2ex", "github", "polymarket", "arxiv", "techmeme", "hiring"];
 
 export function QueryLauncher() {
   const router = useRouter();
@@ -93,6 +99,24 @@ export function QueryLauncher() {
   const [error, setError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isDoctorOpen, setIsDoctorOpen] = useState(false);
+
+  // Discovery mode (velocity-ranked topic suggestions)
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveryTopics, setDiscoveryTopics] = useState<DiscoveryTopic[]>([]);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+
+  const handleDiscover = async () => {
+    setIsDiscovering(true);
+    setDiscoveryError(null);
+    try {
+      const topics = await discoverTopics(undefined, 6);
+      setDiscoveryTopics(topics);
+    } catch (err: any) {
+      setDiscoveryError(err.message || "Discovery sweep failed");
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
 
   const toggleChannel = (channelId: string) => {
     if (channels.includes(channelId)) {
@@ -354,6 +378,67 @@ export function QueryLauncher() {
               <span>{error}</span>
             </div>
           )}
+
+          {/* Discovery Mode: velocity-ranked topic suggestions */}
+          <div className="pt-2 space-y-3">
+            <button
+              type="button"
+              onClick={handleDiscover}
+              disabled={isDiscovering}
+              className="inline-flex items-center gap-1.5 text-xs font-mono text-[#ffca16] hover:text-[#ffffff] bg-[#ffca16]/10 border border-[#ffca16]/30 hover:border-[#ffca16] px-2.5 py-1 rounded-[6px] transition-colors disabled:opacity-50"
+              title="Sweep HN, arXiv, Polymarket & Techmeme for what's surging right now"
+            >
+              {isDiscovering ? <Loader2 className="h-3 w-3 animate-spin" /> : <TrendingUp className="h-3 w-3" />}
+              <span>{isDiscovering ? "Sweeping discovery sources..." : "Discover what's surging now"}</span>
+            </button>
+
+            {discoveryError && (
+              <p className="text-xs font-mono text-[#ff9592]">{discoveryError}</p>
+            )}
+
+            {discoveryTopics.length > 0 && (
+              <div className="space-y-2">
+                {discoveryTopics.map((t) => (
+                  <button
+                    key={t.topic}
+                    type="button"
+                    onClick={() => {
+                      setQuery(t.suggested_query);
+                      if (t.suggested_channels?.length) {
+                        setChannels(t.suggested_channels.filter((c) =>
+                          ["google", "reddit", "youtube", "twitter", "hackernews", "v2ex", "github", "polymarket", "arxiv", "techmeme", "hiring"].includes(c)
+                        ));
+                      }
+                    }}
+                    className="w-full text-left p-3 rounded-[8px] bg-[#000000] border border-[#292d30] hover:border-[#ffca16]/60 transition-all group"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-sans text-[#ffffff] group-hover:text-[#ffca16] transition-colors capitalize">
+                          {t.topic}
+                        </div>
+                        <div className="text-[11px] font-mono text-[#6e727a] truncate mt-0.5">
+                          {t.example}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                          t.momentum_label === "SURGING"
+                            ? "text-[#ff9592] border-[#ff9592]/40 bg-[#ff9592]/10"
+                            : "text-[#ffca16] border-[#ffca16]/40 bg-[#ffca16]/10"
+                        }`}>
+                          {t.momentum_label}
+                        </span>
+                        <span className="text-[11px] font-mono text-[#a1a4a5]">
+                          {t.mentions}x &bull; {t.platforms.length} src
+                        </span>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </form>
 
         {/* Channels Configuration & Category Filter */}
