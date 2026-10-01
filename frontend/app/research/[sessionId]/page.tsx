@@ -148,7 +148,7 @@ export default function ResearchSessionPage() {
           </Link>
 
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-serif text-3xl sm:text-4xl font-normal text-[#ffffff] tracking-[-0.01em]">
+            <h1 className="font-serif text-2xl min-[400px]:text-3xl sm:text-4xl font-normal text-[#ffffff] tracking-[-0.01em] break-words min-w-0">
               {session.query}
             </h1>
 

@@ -597,6 +597,23 @@ class YouTubeTranscriptEngine:
         except Exception as e:
             logger.debug(f"Tier 1 youtube-transcript-api setup error: {e}")
 
+        # Tier 1.5: yt-dlp caption tracks (YTSage technique) — used when
+        # youtube-transcript-api is blocked by the "Sign in to confirm you're not
+        # a bot" wall. yt-dlp's innerTube player clients + real browser cookies
+        # keep working in exactly those cases.
+        if not raw_snippets:
+            try:
+                from app.engine.ytdlp_captions import fetch_captions_via_ytdlp
+                ytdlp_snippets = fetch_captions_via_ytdlp(video_id, languages=tuple(languages))
+                if ytdlp_snippets:
+                    raw_snippets = ytdlp_snippets
+                    chosen_language = "en"
+                    is_generated = False
+                    source = "yt_dlp_captions"
+                    logger.info(f"Tier 1.5 yt-dlp captions recovered {len(raw_snippets)} cues for {video_id}")
+            except Exception as e:
+                logger.debug(f"Tier 1.5 yt-dlp captions error for {video_id}: {e}")
+
         # Tier 2: Resilient hardcoded fallback for known benchmark videos (e.g. Rickroll)
         if not raw_snippets:
             resilient_fallback = _get_resilient_fallback_snippets(video_id)

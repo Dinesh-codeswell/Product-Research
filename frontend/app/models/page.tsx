@@ -52,7 +52,8 @@ import {
   PanelRightOpen,
   ArrowLeft,
   Settings,
-  ChevronsUpDown
+  ChevronsUpDown,
+  AlertTriangle
 } from "lucide-react";
 
 interface ModelEndpoint {
@@ -154,7 +155,9 @@ interface Conversation {
   modelId: string;
 }
 
-const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000";
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL?.replace(/\/+$/, "").replace(/\/api\/v1$/, '') || "";
+// Empty string = same-origin (local dev proxy or deployed origin), matching lib/api.ts getBaseUrl().
+// The previous hardcoded http://127.0.0.1:8000 broke the deployed site (browser can't reach the user's localhost).
 
 const CTX_BUCKETS = [
   { key: 0, label: "Any Context" },
@@ -200,6 +203,7 @@ function ModelsContent() {
   const [models, setModels] = useState<ModelEndpoint[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("all");
   const [selectedCapability, setSelectedCapability] = useState("all");
@@ -248,8 +252,8 @@ function ModelsContent() {
   const [tempEnabled, setTempEnabled] = useState(false);
   const [topPEnabled, setTopPEnabled] = useState(false);
   const [maxTokensEnabled, setMaxTokensEnabled] = useState(false);
-  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
+  const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [isModelSearchOpen, setIsModelSearchOpen] = useState(false);
   const [modelSearchFilter, setModelSearchFilter] = useState("");
   const [isSendingMessage, setIsSendingMessage] = useState(false);
@@ -298,9 +302,13 @@ function ModelsContent() {
       if (res.ok) {
         const data = await res.json();
         setModels(data.models || []);
+        setCatalogError(null);
+      } else {
+        setCatalogError(`Model catalog unreachable (HTTP ${res.status}). Is the backend running?`);
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Failed to load models:", e);
+      setCatalogError("Failed to reach the PulseRadar API for the model catalog. Start the backend (uvicorn app.main:app) or check your connection.");
     } finally {
       setLoading(false);
     }
@@ -661,9 +669,9 @@ function ModelsContent() {
   if (activeTab === "playground") {
     return (
       <div className="fixed inset-0 z-[99999] w-screen h-screen overflow-hidden flex bg-[#0c0d12] text-slate-100 select-none">
-        {/* Column 1: Conversations Sidebar (Collapsible, w-60) */}
+        {/* Column 1: Conversations Sidebar (Collapsible, w-60; overlays on mobile) */}
         {isLeftSidebarOpen ? (
-          <aside className="w-60 border-r border-[#1f2026] bg-[#0c0d12] flex flex-col shrink-0 select-none">
+          <aside className="absolute inset-y-0 left-0 z-30 w-60 lg:static lg:z-auto border-r border-[#1f2026] bg-[#0c0d12] flex flex-col shrink-0 select-none shadow-2xl lg:shadow-none">
             <div className="h-12 px-3.5 border-b border-[#1f2026] flex items-center justify-between text-xs shrink-0">
               <span className="font-semibold text-zinc-200">Conversations</span>
               <div className="flex items-center space-x-1">
@@ -880,9 +888,9 @@ function ModelsContent() {
           </div>
         </main>
 
-        {/* Column 3: Settings Sidebar (Matching Screenshot 2026-09-26 230854 & 230901) */}
+        {/* Column 3: Settings Sidebar (overlays on mobile) */}
         {isRightSidebarOpen && (
-          <aside className="w-80 border-l border-[#1f2026] bg-[#0c0d12] flex flex-col shrink-0 text-xs select-none">
+          <aside className="absolute inset-y-0 right-0 z-30 w-80 max-w-[85vw] lg:static lg:z-auto lg:max-w-none border-l border-[#1f2026] bg-[#0c0d12] flex flex-col shrink-0 text-xs select-none shadow-2xl lg:shadow-none">
             <div className="h-12 px-4 border-b border-[#1f2026] flex items-center justify-between text-xs shrink-0">
               <span className="font-semibold text-zinc-200">Settings</span>
               <button
@@ -1190,6 +1198,17 @@ function ModelsContent() {
             <button onClick={() => setConfigSuccess(null)} className="text-emerald-400 hover:text-emerald-200">
               <X className="w-4 h-4" />
             </button>
+          </div>
+        )}
+
+        {/* Catalog connectivity error (helps when the API is down rather than silently empty) */}
+        {catalogError && (
+          <div className="mb-6 p-4 rounded-xl bg-rose-950/50 border border-rose-500/30 text-rose-300 text-sm flex items-start justify-between gap-3">
+            <div className="flex items-start space-x-2">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{catalogError}</span>
+            </div>
+            <button onClick={() => fetchCatalog()} className="text-rose-300 hover:text-white underline text-xs shrink-0">Retry</button>
           </div>
         )}
 

@@ -3,10 +3,13 @@ Compares initial Server-Side Rendered (SSR) HTML against
 full client-side JavaScript rendered DOM to identify content
 invisible to search crawlers and AI bots with strict JS budgets.
 """
+import logging
 import re
 from typing import Dict, Any, List
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
+
+logger = logging.getLogger(__name__)
 
 class RenderingGapAuditor:
     async def audit(self, url: str, ssr_crawl_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -27,7 +30,25 @@ class RenderingGapAuditor:
 
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+                browser = None
+                # Launch strategy: bundled Chromium → system Chrome → system Edge.
+                # Avoids "Executable doesn't exist" when the playwright browser
+                # download hasn't run (e.g. fresh Render deploy).
+                launch_attempts = (
+                    {"headless": True, "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
+                    {"headless": True, "channel": "chrome", "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
+                    {"headless": True, "channel": "msedge", "args": ["--no-sandbox", "--disable-setuid-sandbox"]},
+                )
+                last_err: Exception = None
+                for attempt in launch_attempts:
+                    try:
+                        browser = await p.chromium.launch(**attempt)
+                        break
+                    except Exception as le:  # noqa: BLE001
+                        last_err = le
+                        logger.debug(f"Playwright launch attempt {attempt.get('channel', 'bundled')} failed: {le}")
+                if browser is None:
+                    raise last_err or RuntimeError("No browser available")
                 page = await browser.new_page(
                     user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
                 )

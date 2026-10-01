@@ -539,8 +539,8 @@ export default function HomePage() {
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-[#292d30] flex items-center justify-between text-xs font-mono">
-                <div className="flex items-center gap-1.5 text-[#6e727a]">
+              <div className="pt-3 border-t border-[#292d30] flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                <div className="flex items-center gap-1.5 text-[#6e727a] flex-wrap min-w-0">
                   {item.channels.map((ch) => (
                     <span key={ch} className="capitalize">
                       {ch}
@@ -554,7 +554,7 @@ export default function HomePage() {
                     // Scroll to top and pre-populate query input if possible
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                  className="flex items-center gap-1 text-[#ffffff] hover:text-[#9281f7] transition-colors"
+                  className="flex items-center gap-1 text-[#ffffff] hover:text-[#9281f7] transition-colors shrink-0 whitespace-nowrap ml-auto"
                 >
                   <span>Sweep Similar</span>
                   <ArrowRight className="h-3 w-3" />

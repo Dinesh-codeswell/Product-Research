@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { FileText, Sparkles, Copy, Check, Download, Loader2 } from "lucide-react";
-import { generatePrd, getExportUrl } from "@/lib/api";
+import { FileText, Sparkles, Copy, Check, Download, Loader2, Network } from "lucide-react";
+import { generatePrd, getExportUrl, getBaseUrl } from "@/lib/api";
 
 interface PrdStudioProps {
   sessionId: string;
@@ -31,6 +31,49 @@ export function PrdStudio({ sessionId, initialPrd }: PrdStudioProps) {
     navigator.clipboard.writeText(prdContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const [reportLoading, setReportLoading] = useState(false);
+  const handleOpenReport = async () => {
+    if (!prdContent) return;
+    setReportLoading(true);
+    try {
+      const { renderMarkdownReport } = await import("@/lib/lab-api");
+      const html = await renderMarkdownReport(
+        "Product Requirements Document",
+        `Session ${sessionId} · PulseRadar video-lens report`,
+        prdContent
+      );
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (e: any) {
+      alert("Report render failed: " + e.message);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
+  const [diagramLoading, setDiagramLoading] = useState(false);
+  const handleOpenDiagram = async () => {
+    if (!prdContent) return;
+    setDiagramLoading(true);
+    try {
+      const { renderInteractiveDiagram } = await import("@/lib/lab-api");
+      const html = await renderInteractiveDiagram(
+        "PRD Mindmap",
+        prdContent
+      );
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 120000);
+    } catch (e: any) {
+      alert("Diagram build failed: " + e.message);
+    } finally {
+      setDiagramLoading(false);
+    }
   };
 
   return (
@@ -88,6 +131,26 @@ export function PrdStudio({ sessionId, initialPrd }: PrdStudioProps) {
               <Download className="h-3.5 w-3.5 text-[#a1a4a5]" />
               <span>Download .md</span>
             </a>
+
+            <button
+              onClick={handleOpenReport}
+              disabled={reportLoading}
+              title="Open the PRD as a polished video-lens-style HTML report"
+              className="px-3.5 py-2 rounded-[6px] bg-[#9281f7]/15 border border-[#9281f7]/40 hover:bg-[#9281f7]/25 text-xs font-mono text-[#9281f7] flex items-center gap-2 transition-all disabled:opacity-50"
+            >
+              {reportLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+              <span>Report</span>
+            </button>
+
+            <button
+              onClick={handleOpenDiagram}
+              disabled={diagramLoading}
+              title="Open the PRD as an interactive Archify-style mindmap (pan/zoom/collapse)"
+              className="px-3.5 py-2 rounded-[6px] bg-[#9281f7]/15 border border-[#9281f7]/40 hover:bg-[#9281f7]/25 text-xs font-mono text-[#9281f7] flex items-center gap-2 transition-all disabled:opacity-50"
+            >
+              {diagramLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Network className="h-3.5 w-3.5" />}
+              <span>Diagram</span>
+            </button>
           </div>
         )}
       </div>

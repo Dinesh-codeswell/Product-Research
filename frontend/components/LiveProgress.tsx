@@ -28,17 +28,17 @@ export function LiveProgress({ progress, status }: LiveProgressProps) {
   return (
     <div className="w-full max-w-3xl mx-auto p-6 rounded-[16px] bg-[#000000] border border-[#292d30] space-y-4 shadow-subtle">
       {/* Terminal Bar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex items-center gap-1.5 shrink-0">
             <span className="h-2.5 w-2.5 rounded-full bg-[#292d30]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#292d30]" />
             <span className="h-2.5 w-2.5 rounded-full bg-[#292d30]" />
           </div>
 
-          <div className="flex items-center gap-2 pl-2 border-l border-[#292d30]">
+          <div className="flex items-center gap-2 pl-2 border-l border-[#292d30] min-w-0">
             <span
-              className={`h-2 w-2 rounded-full ${
+              className={`h-2 w-2 rounded-full shrink-0 ${
                 status === "COMPLETED"
                   ? "bg-[#3ad389]"
                   : status === "FAILED"
@@ -46,13 +46,13 @@ export function LiveProgress({ progress, status }: LiveProgressProps) {
                   : "bg-[#70b8ff] animate-pulse"
               }`}
             />
-            <span className="text-xs font-mono uppercase tracking-wider text-[#a1a4a5]">
+            <span className="text-xs font-mono uppercase tracking-wider text-[#a1a4a5] truncate">
               {getStageLabel(stage)}
             </span>
           </div>
         </div>
 
-        <span className="text-xs font-mono text-[#ffffff] px-2 py-0.5 rounded-[6px] border border-[#292d30] bg-[#000000]">
+        <span className="text-xs font-mono text-[#ffffff] px-2 py-0.5 rounded-[6px] border border-[#292d30] bg-[#000000] shrink-0">
           {percent}%
         </span>
       </div>
@@ -70,7 +70,7 @@ export function LiveProgress({ progress, status }: LiveProgressProps) {
         {status !== "COMPLETED" && status !== "FAILED" && (
           <Loader2 className="h-3 w-3 animate-spin text-[#9281f7] shrink-0" />
         )}
-        <span className="truncate">{message}</span>
+        <span className="break-words min-w-0">{message}</span>
       </div>
     </div>
   );

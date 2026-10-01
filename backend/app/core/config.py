@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GOOGLE_API_KEY: str = ""
 
+    # Browser Authenticated Session (BrowserSkill pattern)
+    # Point at your real Chrome user-data dir so LiveBrowserAgent reuses logged-in sessions
+    BROWSER_USER_DATA_DIR: str = ""
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),
         env_file_encoding="utf-8",

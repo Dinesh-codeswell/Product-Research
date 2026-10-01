@@ -94,6 +94,14 @@ class TwitterChannel(BaseChannel):
         if len(items) < 3:
             items.extend(self._get_fallback_items(query))
 
+        # FxEmbed-style enrichment: attach media/poll/quote + real engagement metrics
+        # for status URLs. Best-effort, never raises, capped so sweeps stay fast.
+        try:
+            from app.engine.twitter_embeds import enrich_twitter_items
+            items = await enrich_twitter_items(items)
+        except Exception as e:
+            logger.debug(f"FxEmbed enrichment skipped: {e}")
+
         return items[:limit]
 
     async def _search_via_api(self, query: str, limit: int) -> List[ChannelItem]:

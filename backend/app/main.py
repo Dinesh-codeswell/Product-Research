@@ -13,6 +13,7 @@ from app.api.v1.seo import router as seo_router
 from app.api.v1.models import router as models_router
 from app.api.v1.office import router as office_router
 from app.api.v1.youtube import router as youtube_router
+from app.api.v1.lab import router as lab_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +32,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="PulseRadar API",
     description="Autonomous Multi-Channel Product Research & Synthesis Engine",
-    version="1.0.0",
+    version="1.1.0",
     lifespan=lifespan
 )
 
@@ -52,6 +53,7 @@ app.include_router(seo_router, prefix=settings.API_V1_STR)
 app.include_router(models_router, prefix=settings.API_V1_STR)
 app.include_router(office_router, prefix=settings.API_V1_STR)
 app.include_router(youtube_router, prefix=settings.API_V1_STR)
+app.include_router(lab_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/health", tags=["Health"])

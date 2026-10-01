@@ -1159,10 +1159,10 @@ function OfficeStudioContent() {
       {/* -------------------------------------------------------------------- */}
       {/* TOP APPLICATION BAR */}
       {/* -------------------------------------------------------------------- */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-[#292d30] bg-[#121418] shrink-0">
+      <div className="flex items-center justify-between gap-2 px-2.5 sm:px-4 py-2 border-b border-[#292d30] bg-[#121418] shrink-0 overflow-x-auto no-scrollbar">
         {/* Left: Document Title, Mode Switcher & Source Badge */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             <div className={`h-7 w-7 rounded-[6px] flex items-center justify-center ${
               docType === "sheets"
                 ? "bg-[#3ad389]/20 border border-[#3ad389]/40 text-[#3ad389]"
@@ -1202,40 +1202,46 @@ function OfficeStudioContent() {
 
           <div className="h-4 w-[1px] bg-[#292d30]" />
 
-          {/* Mode Switcher Tabs (Sheets / Docs / Slides) */}
-          <div className="flex items-center bg-[#181a20] p-0.5 rounded-[6px] border border-[#292d30]">
+          {/* Mode Switcher Tabs (Sheets / Docs / Slides) — icon-only on phones */}
+          <div className="flex items-center bg-[#181a20] p-0.5 rounded-[6px] border border-[#292d30] shrink-0">
             <button
               onClick={() => setDocType("sheets")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-[4px] text-xs font-mono font-medium transition-all ${
+              title="Sheets (Excel)"
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-[4px] text-xs font-mono font-medium transition-all whitespace-nowrap ${
                 docType === "sheets"
                   ? "bg-[#3ad389]/20 text-[#ffffff] border border-[#3ad389]/50"
                   : "text-[#a1a4a5] hover:text-[#ffffff]"
               }`}
             >
-              <FileSpreadsheet className="h-3.5 w-3.5 text-[#3ad389]" />
-              <span>Sheets (Excel)</span>
+              <FileSpreadsheet className="h-3.5 w-3.5 text-[#3ad389] shrink-0" />
+              <span className="hidden md:inline">Sheets (Excel)</span>
+              <span className="md:hidden">Sheets</span>
             </button>
             <button
               onClick={() => setDocType("docs")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-[4px] text-xs font-mono font-medium transition-all ${
+              title="Docs (Word)"
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-[4px] text-xs font-mono font-medium transition-all whitespace-nowrap ${
                 docType === "docs"
                   ? "bg-[#9281f7]/20 text-[#ffffff] border border-[#9281f7]/50"
                   : "text-[#a1a4a5] hover:text-[#ffffff]"
               }`}
             >
-              <FileText className="h-3.5 w-3.5 text-[#9281f7]" />
-              <span>Docs (Word)</span>
+              <FileText className="h-3.5 w-3.5 text-[#9281f7] shrink-0" />
+              <span className="hidden md:inline">Docs (Word)</span>
+              <span className="md:hidden">Docs</span>
             </button>
             <button
               onClick={() => setDocType("slides")}
-              className={`flex items-center gap-1.5 px-3 py-1 rounded-[4px] text-xs font-mono font-medium transition-all ${
+              title="Slides (PowerPoint)"
+              className={`flex items-center gap-1.5 px-2 sm:px-3 py-1 rounded-[4px] text-xs font-mono font-medium transition-all whitespace-nowrap ${
                 docType === "slides"
                   ? "bg-[#ffb020]/20 text-[#ffffff] border border-[#ffb020]/50"
                   : "text-[#a1a4a5] hover:text-[#ffffff]"
               }`}
             >
-              <Presentation className="h-3.5 w-3.5 text-[#ffb020]" />
-              <span>Slides (PowerPoint)</span>
+              <Presentation className="h-3.5 w-3.5 text-[#ffb020] shrink-0" />
+              <span className="hidden md:inline">Slides (PowerPoint)</span>
+              <span className="md:hidden">Slides</span>
             </button>
           </div>
 
@@ -1259,25 +1265,26 @@ function OfficeStudioContent() {
         </div>
 
         {/* Right Action Buttons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {/* Saved Documents */}
           <button
             onClick={openSavedDocsDrawer}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] bg-[#181a20] border border-[#292d30] hover:border-[#ffffff] text-xs text-[#a1a4a5] hover:text-[#ffffff] transition-all"
             title="Browse saved office files"
           >
-            <FolderOpen className="h-3.5 w-3.5 text-[#9281f7]" />
+            <FolderOpen className="h-3.5 w-3.5 text-[#9281f7] shrink-0" />
             <span className="hidden sm:inline">Files</span>
           </button>
 
           {/* Connect Live Source Drawer */}
           <button
             onClick={openSourcesDrawer}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-[6px] bg-[#181a20] border border-[#9281f7]/40 hover:border-[#9281f7] text-xs font-medium text-[#ffffff] transition-all"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-[6px] bg-[#181a20] border border-[#9281f7]/40 hover:border-[#9281f7] text-xs font-medium text-[#ffffff] transition-all whitespace-nowrap"
             title="Connect Consumer Discovery or SEO audit data in real time"
           >
-            <Database className="h-3.5 w-3.5 text-[#9281f7]" />
-            <span>Connect Data</span>
+            <Database className="h-3.5 w-3.5 text-[#9281f7] shrink-0" />
+            <span className="hidden min-[480px]:inline">Connect Data</span>
+            <span className="min-[480px]:hidden">Data</span>
           </button>
 
           {/* Save Document */}

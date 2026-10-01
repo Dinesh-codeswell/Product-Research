@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppShell } from "@/components/AppShell";
 
@@ -6,6 +6,14 @@ export const metadata: Metadata = {
   title: "PulseRadar — Autonomous Multi-Channel Product Research & SEO/GEO Studio",
   description:
     "Turn raw multi-channel chatter across Reddit, YouTube, Twitter/X, GitHub, and Google into verified, evidence-backed product specifications and 4-pillar Generative Engine Optimization.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
+  themeColor: "#000000",
 };
 
 export default function RootLayout({

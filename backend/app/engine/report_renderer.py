@@ -1,0 +1,359 @@
+"""HTML Report Renderer (video-lens-inspired)
+
+Renders PulseRadar transcripts and PRDs as polished, self-contained HTML
+reports with the video-lens structure: executive summary, takeaways, key
+points with analysis, a timestamped topic outline that deep-links the embedded
+player (`&t=NNs`), dark-mode auto-detection, and one-click Markdown copy.
+
+Everything is inline (no external assets) so reports work offline and embed
+cleanly inside the studio UI or as emailed briefs.
+"""
+import html
+import re
+from typing import Any, Dict, List, Optional
+
+# ---------------------------------------------------------------------------
+# Base shell — dark-mode aware, print friendly, mobile responsive
+# ---------------------------------------------------------------------------
+BASE_CSS = """
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  background: #f7f7f8; color: #1a1b1e; line-height: 1.65; padding: 0;
+}
+@media (prefers-color-scheme: dark) {
+  body { background: #0c0d10; color: #e8eaed; }
+  .card { background: #14161a !important; border-color: #292d30 !important; }
+  .muted { color: #9ba1a6 !important; }
+  a { color: #9281f7 !important; }
+  code, .mono { background: #1c1f24 !important; }
+  th { background: #1c1f24 !important; }
+}
+.wrap { max-width: 880px; margin: 0 auto; padding: 40px 20px 80px; }
+.hero { padding: 28px 28px 20px; }
+.hero h1 { font-size: 26px; letter-spacing: -0.02em; margin-bottom: 8px; }
+.hero .meta { font-size: 13px; }
+.card { background: #ffffff; border: 1px solid #e4e5e6; border-radius: 12px;
+        margin-bottom: 20px; overflow: hidden; }
+.section { padding: 24px 28px; }
+.section h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.08em;
+              margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.section h2 .dot { width: 8px; height: 8px; border-radius: 50%; background: #9281f7; display: inline-block; }
+.muted { color: #6b7075; font-size: 13px; }
+.mono, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+              background: #f1f2f3; padding: 1px 6px; border-radius: 5px; }
+a { color: #6d5bd0; text-decoration: none; }
+a:hover { text-decoration: underline; }
+ul, ol { padding-left: 22px; }
+li { margin-bottom: 8px; }
+.player { position: relative; width: 100%; aspect-ratio: 16/9; background: #000; }
+.player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.outline-item { display: flex; gap: 14px; padding: 12px 0; border-bottom: 1px dashed #e4e5e6; align-items: baseline; }
+.outline-item:last-child { border-bottom: 0; }
+.ts { flex-shrink: 0; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px;
+      background: #eceafc; color: #5b4bc4; border-radius: 6px; padding: 2px 8px; }
+@media (prefers-color-scheme: dark) { .ts { background: #241f3d; color: #b3a7f5; } }
+.outline-item a { color: inherit; }
+.outline-item p { flex: 1; font-size: 14.5px; }
+.kp { padding: 14px 0; border-bottom: 1px dashed #e4e5e6; }
+.kp:last-child { border-bottom: 0; }
+.kp b { display: block; margin-bottom: 4px; font-size: 15px; }
+.kp p { font-size: 14px; }
+.takeaway { border-left: 3px solid #9281f7; padding: 10px 16px; margin-top: 10px;
+            background: rgba(146,129,247,0.07); border-radius: 0 8px 8px 0; font-size: 15px; }
+.badge { display: inline-block; font-size: 11px; font-family: ui-monospace, monospace;
+         padding: 2px 8px; border-radius: 6px; border: 1px solid #292d30; }
+.badge.ok { color: #2ea36c; border-color: rgba(46,163,108,.4); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e4e5e6; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+footer { text-align: center; margin-top: 32px; }
+@media print { .player { display: none; } body { background: #fff; } }
+"""
+
+
+def _esc(v: Optional[str]) -> str:
+    return html.escape(v or "")
+
+
+def _ts(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def _shell(title: str, subtitle: str, body: str, video_id: Optional[str] = None) -> str:
+    player = ""
+    if video_id:
+        player = (
+            '<div class="card"><div class="player">'
+            f'<iframe src="https://www.youtube-nocookie.com/embed/{_esc(video_id)}" '
+            'title="player" allow="accelerometer; encrypted-media; picture-in-picture" allowfullscreen></iframe>'
+            '</div></div>'
+        )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_esc(title)}</title>
+<style>{BASE_CSS}</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card hero">
+    <h1>{_esc(title)}</h1>
+    <div class="meta muted">{subtitle}</div>
+  </div>
+  {player}
+  {body}
+  <footer class="muted">Generated by PulseRadar &middot; video-lens report style &middot; all evidence permalinked</footer>
+</div>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
+# Transcript report (video-lens structure)
+# ---------------------------------------------------------------------------
+
+def _sections_from_snippets(snippets: List[Dict[str, Any]], max_sections: int = 14) -> List[Dict[str, Any]]:
+    """Groups timestamped cues into topical outline sections by punctuation gaps."""
+    sections: List[Dict[str, Any]] = []
+    buf: List[str] = []
+    buf_start: Optional[float] = None
+    last_end = 0.0
+    for sn in snippets:
+        start = float(sn.get("start", 0) or 0)
+        text = (sn.get("text") or "").strip()
+        if not text:
+            continue
+        gap = start - last_end
+        if buf and (gap > 20 or len(" ".join(buf)) > 520):
+            sections.append({"start": buf_start or 0.0, "text": " ".join(buf)})
+            buf, buf_start = [], None
+        if buf_start is None:
+            buf_start = start
+        buf.append(text)
+        last_end = start + float(sn.get("duration", 5) or 5)
+    if buf:
+        sections.append({"start": buf_start or 0.0, "text": " ".join(buf)})
+
+    # Keep the most content-rich sections
+    sections.sort(key=lambda s: len(s["text"]), reverse=True)
+    sections = sections[:max_sections]
+    sections.sort(key=lambda s: s["start"])
+    for s in sections:
+        s["title"] = _outline_title(s["text"])
+    return sections
+
+
+def _outline_title(text: str) -> str:
+    clean = re.sub(r"\s+", " ", text).strip()
+    first = re.split(r"(?<=[.!?])\s", clean)[0]
+    words = first.split()
+    if len(words) > 14:
+        words = words[:14]
+        title = " ".join(words).rstrip(",;:") + "…"
+    else:
+        title = first.rstrip(",;:")
+    return title or "Section"
+
+
+def render_transcript_report_html(
+    video_id: str,
+    video_title: str,
+    channel: Optional[str],
+    duration_text: Optional[str],
+    transcript_text: str,
+    snippets: List[Dict[str, Any]],
+    stats: Optional[Dict[str, Any]] = None,
+) -> str:
+    """Full video-lens-style report: summary, takeaway, key points, outline, player."""
+    stats = stats or {}
+    word_count = stats.get("word_count") or len(transcript_text.split())
+
+    # Executive summary — first ~4 sentences of the richest section text
+    sections = _sections_from_snippets(snippets)
+    all_text = re.sub(r"\s+", " ", transcript_text).strip()
+    sentences = re.split(r"(?<=[.!?])\s+", all_text)
+    summary = " ".join(sentences[:4])
+    if len(summary) > 480:
+        summary = summary[:477].rsplit(" ", 1)[0] + "…"
+
+    # Takeaway — highest keyword-density sentence (crude but deterministic)
+    takeaway = sentences[0] if sentences else all_text[:220]
+    keywords = ("how", "why", "best", "problem", "mistake", "result", "secret",
+                "framework", "lesson", "strategy", "truth", "biggest")
+    best_score = -1
+    for s in sentences:
+        low = s.lower()
+        score = sum(low.count(k) for k in keywords) + min(len(s) // 120, 2)
+        if score > best_score:
+            best_score, takeaway = score, s
+
+    # Key points — top 5 outline sections condensed
+    key_points = [
+        {"title": s["title"], "detail": _detail(s["text"])}
+        for s in sections[:5]
+    ]
+
+    outline_rows = "".join(
+        f'<div class="outline-item">'
+        f'<span class="ts"><a href="https://www.youtube.com/watch?v={_esc(video_id)}&t={int(s["start"])}s">{_ts(s["start"])}</a></span>'
+        f'<p><a href="https://www.youtube.com/watch?v={_esc(video_id)}&t={int(s["start"])}s">{_esc(s["title"])}</a></p>'
+        f'</div>'
+        for s in sections
+    )
+
+    key_html = "".join(
+        f'<div class="kp"><b>{_esc(k["title"])}</b><p class="muted">{_esc(k["detail"])}</p></div>'
+        for k in key_points
+    ) or '<p class="muted">No key points extracted.</p>'
+
+    meta_bits = [_esc(channel or "Unknown channel")]
+    if duration_text:
+        meta_bits.append(_esc(duration_text))
+    meta_bits.append(f"{word_count:,} words")
+    if sections:
+        meta_bits.append(f"{len(sections)} outline topics")
+
+    body = f"""
+  <div class="card"><div class="section">
+    <h2><span class="dot"></span>Executive Summary</h2>
+    <p>{_esc(summary)}</p>
+    <div class="takeaway"><b>Takeaway:</b> {_esc(takeaway)}</div>
+  </div></div>
+  <div class="card"><div class="section">
+    <h2><span class="dot"></span>Key Points</h2>
+    {key_html}
+  </div></div>
+  <div class="card"><div class="section">
+    <h2><span class="dot"></span>Timestamped Outline</h2>
+    {outline_rows or '<p class="muted">No outline cues available.</p>'}
+  </div></div>
+"""
+    return _shell(video_title or "Video Report", " · ".join(meta_bits), body, video_id=video_id)
+
+
+def _detail(text: str, max_len: int = 240) -> str:
+    clean = re.sub(r"\s+", " ", text).strip()
+    if len(clean) <= max_len:
+        return clean
+    return clean[:max_len - 1].rsplit(" ", 1)[0] + "…"
+
+
+# ---------------------------------------------------------------------------
+# PRD report — renders an existing markdown PRD in the same visual language
+# ---------------------------------------------------------------------------
+
+def render_markdown_report_html(title: str, subtitle: str, markdown: str) -> str:
+    """Minimal, dependency-free markdown → report-HTML (headings, lists, bold, code, tables)."""
+    lines = markdown.splitlines()
+    out: List[str] = []
+    in_list = False
+    in_table = False
+    card_open = False
+
+    def close_list():
+        nonlocal in_list
+        if in_list:
+            out.append("</ul>")
+            in_list = False
+
+    def close_table():
+        nonlocal in_table
+        if in_table:
+            out.append("</table></div>")
+            in_table = False
+
+    def close_card():
+        nonlocal card_open
+        close_table()
+        if card_open:
+            out.append("</div></div>")
+            card_open = False
+
+    def open_card():
+        nonlocal card_open
+        close_card()
+        out.append('<div class="card"><div class="section">')
+        card_open = True
+
+    def inline(md: str) -> str:
+        s = _esc(md)
+        s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
+        s = re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"<i>\1</i>", s)
+        s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+        s = re.sub(r"\[(.+?)\]\((https?://[^\s)]+)\)",
+                   r'<a href="\2" target="_blank" rel="noopener">\1</a>', s)
+        return s
+
+    for raw in lines:
+        line = raw.rstrip()
+        if line.startswith("|") and line.endswith("|"):
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if all(re.fullmatch(r":?-{2,}:?", c) for c in cells):
+                continue
+            if not in_table:
+                if not card_open:
+                    open_card()
+                close_list()
+                out.append('<div style="padding-top:12px"><table>')
+                in_table = True
+                out.append("<tr>" + "".join(f"<th>{inline(c)}</th>" for c in cells) + "</tr>")
+            else:
+                out.append("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in cells) + "</tr>")
+            continue
+        close_table()
+        if line.startswith("### "):
+            if not card_open:
+                open_card()
+            close_list()
+            out.append(f'<h3 style="margin:18px 0 6px;font-size:16px">{inline(line[4:])}</h3>')
+        elif line.startswith("## "):
+            open_card()
+            out.append(f'<h2><span class="dot"></span>{inline(line[3:])}</h2>')
+        elif line.startswith("# "):
+            close_card()
+            out.append(f'<h2 style="margin:20px 0 8px;font-size:20px">{inline(line[2:])}</h2>')
+        elif re.match(r"^[-*]\s+", line):
+            if not card_open:
+                open_card()
+            if not in_list:
+                out.append("<ul>")
+                in_list = True
+            out.append(f"<li>{inline(re.sub(r'^[-*]\s+', '', line))}</li>")
+        elif re.match(r"^\d+\.\s+", line):
+            if not card_open:
+                open_card()
+            if not in_list:
+                out.append("<ul>")
+                in_list = True
+            out.append(f"<li>{inline(re.sub(r'^\d+\.\s+', '', line))}</li>")
+        elif not line.strip():
+            close_list()
+        else:
+            if not card_open:
+                open_card()
+            close_list()
+            out.append(f'<p style="margin:8px 0;font-size:14.5px">{inline(line)}</p>')
+    close_list()
+    close_card()
+    body = "".join(out)
+    return _shell(title, subtitle, body)
+
+
+def srt_from_snippets(snippets: List[Dict[str, Any]]) -> str:
+    """Converts timestamped transcript cues into SubRip (.srt) text."""
+    def fmt(t: float) -> str:
+        ms = int((t % 1) * 1000)
+        s = int(t)
+        return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d},{ms:03d}"
+
+    blocks = []
+    for i, sn in enumerate(snippets, 1):
+        start = float(sn.get("start", 0) or 0)
+        dur = float(sn.get("duration", 3) or 3)
+        blocks.append(f"{i}\n{fmt(start)} --> {fmt(start + dur)}\n{(sn.get('text') or '').strip()}\n")
+    return "\n".join(blocks)

@@ -151,12 +151,32 @@ class LiveBrowserAgent:
                     launch_kwargs.pop("executable_path", None)
                     browser = p.chromium.launch(**launch_kwargs)
 
-                context = browser.new_context(
-                    viewport={"width": 1280, "height": 800},
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-                    locale="en-US",
-                    timezone_id="America/New_York"
-                )
+                # Authenticated-session mode (BrowserSkill pattern): reuse the user's
+                # real Chrome profile so walled-garden channels see logged-in sessions.
+                user_data_dir = (getattr(settings, "BROWSER_USER_DATA_DIR", "") or "").strip()
+                if user_data_dir and os.path.isdir(user_data_dir):
+                    try:
+                        launch_kwargs["user_data_dir"] = user_data_dir
+                        browser.close()
+                        browser = p.chromium.launch_persistent_context(**launch_kwargs)
+                        context = browser  # persistent context IS the context
+                        logger.info(f"LiveBrowserAgent using authenticated profile: {user_data_dir}")
+                    except Exception as e:
+                        logger.warning(f"Persistent-profile launch failed ({e}); using fresh context.")
+                        browser = p.chromium.launch(**{k: v for k, v in launch_kwargs.items() if k != "user_data_dir"})
+                        context = browser.new_context(
+                            viewport={"width": 1280, "height": 800},
+                            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                            locale="en-US",
+                            timezone_id="America/New_York"
+                        )
+                else:
+                    context = browser.new_context(
+                        viewport={"width": 1280, "height": 800},
+                        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+                        locale="en-US",
+                        timezone_id="America/New_York"
+                    )
 
                 # Stealth evasions to eliminate automated bot flags
                 context.add_init_script("""

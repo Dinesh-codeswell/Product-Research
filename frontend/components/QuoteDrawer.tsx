@@ -19,7 +19,68 @@ import {
   Download
 } from "lucide-react";
 import { InsightCluster, EvidenceQuote } from "@/lib/types";
+import { fetchTweetEmbeds } from "@/lib/lab-api";
+import type { TweetEmbeds } from "@/lib/lab-types";
 import { YouTubeTranscriptModal } from "./YouTubeTranscriptModal";
+
+/** FxEmbed-powered media & poll preview for Twitter/X quotes (lazy, best-effort). */
+function TweetEmbedBlock({ permalink }: { permalink: string }) {
+  const [embeds, setEmbeds] = React.useState<TweetEmbeds | null>(null);
+  const [tried, setTried] = React.useState(false);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetchTweetEmbeds(permalink).then((data) => {
+      if (!cancelled) { setEmbeds(data); setTried(true); }
+    }).catch(() => { if (!cancelled) setTried(true); });
+    return () => { cancelled = true; };
+  }, [permalink]);
+
+  if (!embeds) return tried ? null : (
+    <p className="text-[10px] font-mono text-[#464a4d] pl-3">fetching tweet media…</p>
+  );
+
+  const hasMedia = embeds.media?.length > 0;
+  const hasPoll = !!embeds.poll;
+  if (!hasMedia && !hasPoll) return null;
+
+  return (
+    <div className="space-y-2 pl-3">
+      {hasMedia && (
+        <div className="flex flex-wrap gap-2">
+          {embeds.media.slice(0, 4).map((m, i) =>
+            m.type === "photo" && (m.thumbnail || m.url) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={i} src={m.thumbnail || m.url || ""} alt={m.alt || "tweet media"}
+                className="h-24 w-auto max-w-[200px] object-cover rounded-[8px] border border-[#292d30]" />
+            ) : (
+              <a key={i} href={m.url || permalink} target="_blank" rel="noreferrer"
+                className="text-[10px] font-mono px-2 py-1 rounded border border-[#292d30] text-[#70b8ff] hover:border-[#70b8ff]/50">
+                {m.type === "video" ? "▶ video" : "GIF"}
+              </a>
+            )
+          )}
+        </div>
+      )}
+      {hasPoll && embeds.poll && (
+        <div className="space-y-1.5">
+          <p className="text-[10px] font-mono text-[#a1a4a5]">
+            Poll · {embeds.poll.total_votes.toLocaleString()} votes
+          </p>
+          {embeds.poll.options.map((o, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="text-[11px] text-[#f0f0f0] w-32 truncate">{o.label}</span>
+              <div className="flex-1 h-1.5 rounded bg-[#292d30]/60 overflow-hidden">
+                <div className="h-full bg-[#9281f7]" style={{ width: `${o.percent}%` }} />
+              </div>
+              <span className="text-[10px] font-mono text-[#9ba1a6] w-9 text-right">{o.percent}%</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface QuoteDrawerProps {
   cluster: InsightCluster | null;
@@ -126,6 +187,11 @@ export function QuoteDrawer({ cluster, onClose }: QuoteDrawerProps) {
                 <blockquote className="text-sm font-sans text-[#f0f0f0] leading-relaxed italic border-l border-[#292d30] pl-3 py-0.5">
                   "{quote.quote_text}"
                 </blockquote>
+
+                {/* FxEmbed media & poll preview for X/Twitter quotes */}
+                {quote.source_channel.toLowerCase() === "twitter" && (
+                  <TweetEmbedBlock permalink={quote.permalink} />
+                )}
 
                 {/* Action Buttons */}
                 <div className="pt-2 border-t border-[#292d30] flex items-center justify-end gap-2 text-xs font-mono">

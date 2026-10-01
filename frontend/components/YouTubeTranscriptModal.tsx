@@ -38,7 +38,8 @@ import {
   transcribeYouTubeAudio,
   getYouTubeWhisperStatus,
   fetchYouTubeFormats,
-  getYouTubeDownloadUrl
+  getYouTubeDownloadUrl,
+  getBaseUrl
 } from "@/lib/api";
 
 interface YouTubeTranscriptModalProps {
@@ -384,6 +385,18 @@ ${data.text}
           </div>
 
           <div className="flex items-center gap-2">
+            {videoId && (
+              <a
+                href={`${getBaseUrl()}/lab/reports/transcript/${videoId}`}
+                target="_blank"
+                rel="noreferrer"
+                className="hidden sm:inline-flex p-1.5 px-2.5 rounded-[6px] border text-xs font-mono transition-all items-center gap-1.5 bg-[#181a20] border-[#292d30] text-[#a1a4a5] hover:text-[#ffffff] hover:border-[#3ad389]/50"
+                title="Open the full video-lens research report (summary, key points, timestamped outline)"
+              >
+                <FileDown className="h-3.5 w-3.5 text-[#3ad389]" />
+                <span className="hidden md:inline">Report</span>
+              </a>
+            )}
             <button
               onClick={() => setShowPlayer(!showPlayer)}
               className={`p-1.5 px-2.5 rounded-[6px] border text-xs font-mono transition-all flex items-center gap-1.5 ${

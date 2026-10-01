@@ -27,9 +27,83 @@ import {
   BarChart3,
   ExternalLink,
   Code2,
-  Radio
+  Radio,
+  Loader2
 } from "lucide-react";
 import { startSeoAudit, listRecentSeoAudits } from "@/lib/api";
+import type { SecurityAuditResult } from "@/lib/lab-types";
+
+function SecurityPostureCard() {
+  const [secUrl, setSecUrl] = useState("");
+  const [secLoading, setSecLoading] = useState(false);
+  const [secResult, setSecResult] = useState<SecurityAuditResult | null>(null);
+  const [secError, setSecError] = useState<string | null>(null);
+
+  const runSec = async () => {
+    if (!secUrl.trim()) return;
+    setSecLoading(true); setSecError(null); setSecResult(null);
+    try {
+      const { runSecurityAudit } = await import("@/lib/lab-api");
+      setSecResult(await runSecurityAudit(secUrl.trim()));
+    } catch (e: any) {
+      setSecError(e.message?.replace(/"/g, "") || "Audit failed");
+    } finally {
+      setSecLoading(false);
+    }
+  };
+
+  const gradeColor = (g: string) =>
+    g === "A" ? "text-[#3ad389]" : g === "B" ? "text-[#70b8ff]" : g === "C" ? "text-[#ffca16]" : "text-[#ff6465]";
+
+  return (
+    <section className="space-y-6">
+      <div className="flex items-end justify-between border-b border-[#292d30] pb-4">
+        <div>
+          <span className="text-xs font-mono uppercase tracking-wider text-[#9281f7]">Shannon-Inspired · Passive</span>
+          <h2 className="text-2xl sm:text-3xl font-serif font-normal text-[#ffffff] tracking-tight mt-1">Security Posture</h2>
+        </div>
+        <Link href="/lab?tab=security" className="text-xs text-[#a1a4a5] hover:text-white font-mono inline-flex items-center gap-1">
+          Open in Lab <ArrowRight className="h-3 w-3" />
+        </Link>
+      </div>
+      <div className="p-6 rounded-[16px] bg-[#000000] border border-[#292d30] space-y-4">
+        <p className="text-xs text-[#a1a4a5]">Header hygiene, cookie flags &amp; sensitive-file exposure — GET-only probes, safe on any site you can reach.</p>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input
+            value={secUrl}
+            onChange={(e) => setSecUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && runSec()}
+            placeholder="example.com"
+            className="flex-1 bg-[#0c0d10] border border-[#292d30] rounded-[8px] px-4 py-2.5 text-sm text-[#ffffff] placeholder-[#464a4d] focus:outline-none focus:border-[#9281f7]/60"
+          />
+          <button
+            onClick={runSec}
+            disabled={!secUrl.trim() || secLoading}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-[8px] bg-[#9281f7] text-black text-sm font-medium hover:bg-[#a99bf8] transition-colors disabled:opacity-50"
+          >
+            {secLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+            Audit security
+          </button>
+        </div>
+        {secError && <p className="text-xs text-[#ff6465]">{secError}</p>}
+        {secResult && (
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 pt-2">
+            <div className={`text-4xl font-bold ${gradeColor(secResult.grade)}`}>{secResult.grade}</div>
+            <div className="flex-1">
+              <p className="text-sm text-[#ffffff] font-mono break-all">{secResult.url}</p>
+              <div className="flex gap-4 mt-1 text-[11px] font-mono">
+                <span className="text-[#3ad389]">{secResult.status_counts.PASS} pass</span>
+                <span className="text-[#ffca16]">{secResult.status_counts.PARTIAL} partial</span>
+                <span className="text-[#ff6465]">{secResult.status_counts.FAIL} fail</span>
+              </div>
+            </div>
+            <Link href="/lab?tab=security" className="text-xs text-[#9281f7] hover:underline font-mono">Full findings →</Link>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
 
 const AUDIT_MODES = [
   {
@@ -250,29 +324,30 @@ export default function SeoLaunchpadPage() {
       {/* 2. Main Audit Console (16px Card, 1px #292d30 Border) */}
       <div className="p-6 sm:p-8 rounded-[16px] bg-[#000000] border border-[#292d30] space-y-6 shadow-subtle">
         {/* Mode Selector Tabs */}
-        <div className="flex items-center justify-between border-b border-[#292d30] pb-4 overflow-x-auto scrollbar-none">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-[#a1a4a5] uppercase tracking-wider mr-1">
+        <div className="border-b border-[#292d30] pb-4">
+          <div className="flex sm:items-center flex-col sm:flex-row sm:justify-between gap-3">
+            <span className="text-xs font-mono text-[#a1a4a5] uppercase tracking-wider shrink-0">
               Audit Mode:
             </span>
-
-            {AUDIT_MODES.map((mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setAuditType(mode.id as any)}
-                className={`px-3 py-1.5 rounded-[6px] text-xs font-mono flex items-center gap-2 transition-all ${
-                  auditType === mode.id
-                    ? "bg-[#000000] text-[#ffffff] border border-[#ffffff] shadow-subtle"
-                    : "bg-[#000000] text-[#a1a4a5] border border-[#292d30] hover:text-[#ffffff] hover:border-[#6e727a]"
-                }`}
-              >
-                <span>{mode.label}</span>
-                <span className="text-[10px] px-1 py-0.2 rounded bg-[#292d30]/60 text-[#9281f7]">
-                  {mode.badge}
-                </span>
-              </button>
-            ))}
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar -mx-1 px-1 py-0.5">
+              {AUDIT_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => setAuditType(mode.id as any)}
+                  className={`px-3 py-1.5 rounded-[6px] text-xs font-mono flex items-center gap-2 transition-all whitespace-nowrap shrink-0 ${
+                    auditType === mode.id
+                      ? "bg-[#000000] text-[#ffffff] border border-[#ffffff] shadow-subtle"
+                      : "bg-[#000000] text-[#a1a4a5] border border-[#292d30] hover:text-[#ffffff] hover:border-[#6e727a]"
+                  }`}
+                >
+                  <span>{mode.label}</span>
+                  <span className="text-[10px] px-1 py-0.2 rounded bg-[#292d30]/60 text-[#9281f7] shrink-0">
+                    {mode.badge}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -320,7 +395,7 @@ export default function SeoLaunchpadPage() {
 
           {/* Quick Preset Samples */}
           <div className="flex flex-wrap items-center gap-2 pt-1 text-xs font-mono text-[#a1a4a5]">
-            <span className="text-[#6e727a]">Quick Presets:</span>
+            <span className="text-[#6e727a] shrink-0">Quick Presets:</span>
             {["https://songdew.com", "https://supabase.com", "https://resend.com", "https://github.com"].map((sample) => (
               <button
                 key={sample}
@@ -663,6 +738,9 @@ export default function SeoLaunchpadPage() {
           ))}
         </div>
       </section>
+
+      {/* 7.5 Security Posture Quick Audit (shannon-inspired, passive) */}
+      <SecurityPostureCard />
 
       {/* 8. Recent Audits Archive (Live Database History) */}
       {recentAudits.length > 0 && (
